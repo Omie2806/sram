@@ -5,18 +5,19 @@ module cache_mem #(
     parameter DATA_WIDTH    = 32,
     parameter TAG_WIDTH     = 18,
     parameter SET_WIDTH     = 8,
-    parameter OFFSET_WIDTH  = 6
+    parameter OFFSET_WIDTH  = 6,
+    parameter WAY           = 4
 ) ( 
     input  logic                        clk, reset,
-    input  logic                        write_en,write_en_main_mem,
-    input  logic [DATA_WIDTH - 1 : 0]   data_in_main_mem,data_in,
+    input  logic                        write_en, write_en_main_mem,
+    input  logic [DATA_WIDTH - 1 : 0]   data_in_main_mem, data_in,
     input  logic [ADDRESS_WIDTH - 1 : 0]mem_add,
-    output logic                        data_ready,data_ready_main_mem,
-    output logic [DATA_WIDTH - 1 : 0]   data_out_main_mem, data_out
+    output logic                        data_ready_main_mem,
+    output logic [DATA_WIDTH - 1 : 0]   data_out_main_mem, data_out,
+    output wire                         data_ready
 );
 
-localparam BLOCKS         = CACHE_SIZE/SETS;
-
+localparam WORDS_PER_BLOCK        = 2**OFFSET_WIDTH;
 localparam ADD           = ADDRESS_WIDTH;
 localparam TAG_IN_ADD    = SET_WIDTH + OFFSET_WIDTH;
 localparam SET_IN_ADD    = OFFSET_WIDTH;
@@ -25,47 +26,100 @@ wire [TAG_WIDTH - 1 : 0]    tag    = mem_add[ADD - 1 : TAG_IN_ADD];        //tag
 wire [SET_WIDTH - 1 : 0]    set    = mem_add[TAG_IN_ADD - 1 : SET_IN_ADD]; //set separation
 wire [OFFSET_WIDTH - 1 : 0] offset = mem_add[SET_IN_ADD - 1 : 0];          //offset separation   
 
-reg [DATA_WIDTH - 1 : 0] CACHE_MEMORY        [0 : SETS - 1][0 : BLOCKS - 1];
-reg [TAG_WIDTH - 1 : 0]  TAG_IN_CACHE_MEMORY [0 : SETS - 1][0 : BLOCKS - 1];
-reg                      VALID               [0 : SETS - 1][0 : BLOCKS - 1];
-reg                      DIRTY               [0 : SETS - 1][0 : BLOCKS - 1];
+reg [DATA_WIDTH - 1 : 0] CACHE_MEMORY        [0 : SETS - 1][0 : WAY - 1][0 : WORDS_PER_BLOCK - 1];
+reg [TAG_WIDTH - 1 : 0]  TAG_IN_CACHE_MEMORY [0 : SETS - 1][0 : WAY - 1];
+reg                      VALID               [0 : SETS - 1][0 : WAY - 1];
+reg                      DIRTY               [0 : SETS - 1][0 : WAY - 1];
 
-wire hit = (VALID[set][offset] && TAG_IN_CACHE_MEMORY[set][offset] == tag);
-assign data_ready = hit;
+reg [1 : 0]              LRU_COUNTER         [0 : SETS - 1][0 : WAY - 1];
+
+
+logic [WAY - 1 : 0] hit_way;
+logic [WAY - 1 : 0] hit_way_index;
+logic               found_empty = 1'b0;
+logic               way_replace;
+
+genvar i;
+integer victim = 0;
+
+generate
+    for (i = 0; i < WAY; i++) begin : hit_detect
+        assign hit_way[i] = VALID[set][i] && (TAG_IN_CACHE_MEMORY[set][i] == tag);
+    end
+endgenerate
+
+assign data_ready = |hit_way;  
+
+function automatic integer get_way_replace();
+integer way_replace = 0;
+    for(integer i = 0; i < WAY; i++) begin
+        if(LRU_COUNTER[set][i] > LRU_COUNTER[set][hit_way_index])begin
+            way_replace = i;
+        end
+    end
+    return way_replace;
+endfunction
 
 always @(posedge clk , posedge reset) begin
     if (reset) begin
         data_out            <= 'b0;
         data_ready_main_mem <= 1'b0;
-        data_ready          <= 1'b0;
-        data_out            <= 'b0;
-        data_out_main_mem   <= 'b0';
+        data_out_main_mem   <= 'b0;
+        for(integer i = 0; i < SETS; i++)begin
+            for (integer j = 0; j < WAY; j++) begin
+                LRU_COUNTER[i][j] <= 0;
+            end
+        end
     end 
 
     //read to cpu
-    if (~write_en && hit) begin 
-            data_out                  <= CACHE_MEMORY[set][offset]; 
-        end
+    if (~write_en && |hit_way) begin 
+        for (integer  i = 0; i < WAY; i++) begin
+            if(VALID[set][i] && (TAG_IN_CACHE_MEMORY[set][i] == tag)) begin
+                data_out            <= CACHE_MEMORY[set][i][offset];
+                LRU_COUNTER[set][i] <= 0;
+                hit_way_index       <= i;
+            end else if (LRU_COUNTER[set][i] < LRU_COUNTER[set][hit_way_index]) begin
+                LRU_COUNTER[set][i] <= LRU_COUNTER[set][i] + 1;
+            end
+        end 
+    end
     //write from cpu
     else if (write_en)  begin 
-            CACHE_MEMORY[set][offset]                 <= data_in; 
-            TAG_IN_CACHE_MEMORY[set][offset]          <= tag;
-            VALID[set][offset]                        <= 1'b1;
-            DIRTY[set][offset]                        <= 1'b1;
+        for (integer i = 0; i < WAY; i++) begin
+            if(VALID[set][i] == 1'b0) begin
+                CACHE_MEMORY[set][i][offset]         <= data_in; 
+                TAG_IN_CACHE_MEMORY[set][i]          <= tag;
+                VALID[set][i]                        <= 1'b1;
+                DIRTY[set][i]                        <= 1'b1;
+                found_empty                          <= 1'b1;
+            end
         end
-    //write to main mem
-    else if (DIRTY[set][offset] == 1'b1 && ~hit) begin
-        data_out_main_mem   <= CACHE_MEMORY[set][offset];
-        data_ready_main_mem <= 1'b1;
-        DIRTY[set][offset]  <= 1'b0;
-        VALID[set][offset]  <= 1'b0;
+        if (!found_empty) begin
+            for (integer i = 0; i < WAY; i++) begin
+                if (LRU_COUNTER[set][i] > LRU_COUNTER[set][hit_way_index]) begin
+                    victim <= i;
+                end
+            end
+            data_out_main_mem <= CACHE_MEMORY[set][victim][offset];
+            data_ready_main_mem <= 1'b1;
+            DIRTY[set][victim]  <= 1'b0;
+            VALID[set][victim]  <= 1'b0;
+        end
+    end
+// write to main mem
+    way_replace <= get_way_replace();
+    else if (DIRTY[set][way_replace] == 1'b1 && ~|hit_way) begin
+        data_out_main_mem        <= CACHE_MEMORY[set][way_replace][offset];
+        data_ready_main_mem      <= 1'b1;
+        DIRTY[set][way_replace]  <= 1'b0;
+        VALID[set][way_replace]  <= 1'b0;
     end
     //read from main mem
     else if (write_en_main_mem) begin
-        CACHE_MEMORY[set][offset] <= data_in_main_mem;
-        DIRTY[set][offset]        <= 1'b1;
-        VALID[set][offset]        <= 1'b1;
-        data_ready                <= 1'b1;
+        CACHE_MEMORY[set][way_replace][offset] <= data_in_main_mem;
+        DIRTY[set][way_replace]                <= 1'b1;
+        VALID[set][way_replace]                <= 1'b1;
     end
 end
 endmodule
