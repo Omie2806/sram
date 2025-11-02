@@ -16,12 +16,10 @@ module cache_fsm #(
     input  logic                                        reset,
     input  logic                                        write_en_main_mem,
     input  logic [DATA_WIDTH - 1 : 0]                   data_in,
-    input  logic [DATA_WIDTH*WORDS_PER_BLOCK - 1 : 0]   data_in_main_mem,
     input  logic [ADDRESS_WIDTH - 1 : 0]                mem_add,
     output logic                                        data_ready,
     output logic [DATA_WIDTH - 1 : 0]                   data_out,
-    output logic                                        data_ready_main_mem,
-    output logic [DATA_WIDTH*WORDS_PER_BLOCK - 1 : 0]   data_out_main_mem 
+    output logic                                        data_ready_main_mem
 );
 
 logic [DATA_WIDTH - 1 : 0] data_in_main_mem_packed  [0 : WORDS_PER_BLOCK - 1];
@@ -50,7 +48,8 @@ reg [SET_WIDTH-1:0]    latched_set;
 reg [TAG_WIDTH-1:0]    latched_tag;
 reg [OFFSET_WIDTH-1:0] latched_offset;
 reg [1:0]              latched_victim;
-reg [TAG_WIDTH-1:0]    victim_tag;  
+reg [TAG_WIDTH-1:0]    victim_tag;
+reg [DATA_WIDTH - 1 : 0] latched_data_in;
 
 // For write-allocate
 reg                    pending_write;
@@ -60,6 +59,9 @@ reg [OFFSET_WIDTH-1:0] pending_write_offset;
 logic[WAY - 1 : 0] HIT;
 logic[WAY - 1 : 0] valid;
 logic[WAY - 1 : 0] dirty;
+logic[WAY - 1 : 0] latched_hit;
+logic[WAY - 1 : 0] latched_valid;
+logic[WAY - 1 : 0] latched_dirty;
 
 typedef enum logic [2 : 0] {
     idle,
@@ -71,7 +73,7 @@ typedef enum logic [2 : 0] {
     read_from_main_mem
 } state_type;
 
-state_type state_curr, state_next;
+state_type state_prev, state_curr, state_next;
 
 always_comb begin
     for (integer i = 0; i < WAY; i++) begin
@@ -82,18 +84,12 @@ always_comb begin
         valid[i] = (VALID[set][i]);
         dirty[i] = (DIRTY[set][i]);
     end
-end
 
-always_comb begin
-    for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
-        data_in_main_mem_packed[i] = data_in_main_mem[i*DATA_WIDTH +: DATA_WIDTH];
-    end    
-end
-
-always_comb begin
-    for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
-        data_out_main_mem[i*DATA_WIDTH +: DATA_WIDTH] = data_out_main_mem_packed[i];
-    end    
+    for (integer i = 0; i < WAY; i++) begin
+        latched_hit[i]   = (VALID[latched_set][i] && TAG_IN_CACHE_MEMORY[latched_set][i] == latched_tag);
+        latched_valid[i] = VALID[latched_set][i];
+        latched_dirty[i] = DIRTY[latched_set][i];
+    end
 end
 
 assign data_ready = |HIT;
@@ -105,6 +101,7 @@ input [SET_WIDTH - 1 : 0] set_index;
     integer victim;
         max    = -1;
         victim = 0;
+
         for (integer i = 0; i < WAY; i++) begin
             if (LRU_COUNTER[set_index][i] > max) begin
                 max    = LRU_COUNTER[set_index][i];
@@ -115,9 +112,21 @@ input [SET_WIDTH - 1 : 0] set_index;
     end
 endfunction
 
+function automatic integer free_way;
+input[SET_WIDTH - 1 : 0] set_index;
+    begin
+        for (integer i = 0; i < WAY; i++) begin
+            if(VALID[set_index][i] == 1'b0) begin
+                return i;
+            end
+        end
+    end
+endfunction
+
 always @(posedge clk , posedge reset) begin
     if(reset) begin
         state_curr           <= idle;
+        state_prev           <= idle;
         data_out             <= 'b0;
         data_ready_main_mem  <= 1'b0;
         latched_set          <= 0;
@@ -152,6 +161,7 @@ always @(posedge clk , posedge reset) begin
     end 
     else begin
         state_curr <= state_next;
+        state_prev <= state_curr;
     end 
 end
 
@@ -163,7 +173,6 @@ logic read_from_main_mem_true;
 
 logic        write_hit;
 logic[1 : 0] write_hit_way;
-logic[1 : 0] free_way;
 
 always @(*) begin
     state_next              = state_curr;
@@ -174,7 +183,7 @@ always @(*) begin
 
     case (state_curr)
         idle: begin
-            if(~write_en && data_ready) begin
+            if(~write_en) begin
                 state_next = read;
             end else if(write_en) begin
                 state_next = write;
@@ -182,7 +191,7 @@ always @(*) begin
         end
 
         read: begin
-                if (|HIT) begin
+                if (|latched_hit) begin
                     read_true = 1;
                     state_next = idle;        
                 end else begin
@@ -193,7 +202,7 @@ always @(*) begin
         write: begin
             write_hit = 0;
             for (integer i = 0; i < WAY; i++) begin
-                if(HIT[i] == 1) begin
+                if(latched_hit[i] == 1) begin
                     write_hit = 1;
                 end
             end
@@ -202,19 +211,19 @@ always @(*) begin
                 write_hit_true = 1;
                 state_next = idle;                
             end
-            else if(|HIT == 0) begin //write miss
-                write_hit_true = 0;
-                if (&valid == 0) begin
-                    state_next = idle;
+            else if(|latched_hit == 0) begin //write miss
+            write_hit_true = 0;
+                if (&latched_valid == 1) begin //all ways valid hence get victim
+                    state_next = get_victim;
                 end
                 else begin
-                    state_next = get_victim; // write miss and cache full
+                    state_next = read_miss;
                 end
             end 
         end
 
         read_miss: begin
-            if(&dirty == 1'b1) begin
+            if(&latched_dirty == 1'b1) begin
                 state_next = get_victim;
             end else begin
                 state_next = read_from_main_mem;
@@ -249,85 +258,68 @@ always @(posedge clk) begin
     case (state_curr)
 
     idle: begin
-        latched_set    <= set;
-        latched_tag    <= tag;
-        latched_offset <= offset;
+        if(state_next == read || state_next == write) begin
+            latched_set    <= set;
+            latched_tag    <= tag;
+            latched_offset <= offset;
+            latched_data_in <= data_in;
+        end
     end
 
     read: begin
-        latched_set    <= set;
-        latched_tag    <= tag;
-        latched_offset <= offset;
         
         if(read_true) begin
             for (integer i = 0; i < WAY; i++) begin
-                if(HIT[i]) begin
-                    data_out                  <= CACHE_MEMORY[set][i][offset]; 
-                    LRU_COUNTER[set][i]       <= 0;
+                if(latched_hit[i]) begin
+                    data_out                  <= CACHE_MEMORY[latched_set][i][latched_offset]; 
+                    LRU_COUNTER[latched_set][i]       <= 0;
                     for (integer j = 0; j < WAY; j++) begin
-                        if(j != i && VALID[set][j]) begin
-                            LRU_COUNTER[set][j] <= LRU_COUNTER[set][j] + 1;
+                        if(j != i && VALID[latched_set][j]) begin
+                            LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
                         end
                     end  
                 end
             end 
-        end       
+        end      
     end
 
     write: begin
-        latched_set    <= set;
-        latched_tag    <= tag;
-        latched_offset <= offset;
 
         if(write_hit_true) begin
             write_hit_way = -1;
             for (integer i = 0; i < WAY; i++) begin
-                if(HIT[i] == 1) begin
+                if(latched_hit[i] == 1) begin
                     write_hit_way = i;
                 end
             end
-            CACHE_MEMORY[set][write_hit_way][offset]         <= data_in; 
-            DIRTY[set][write_hit_way]                        <= 1'b1;
-            TAG_IN_CACHE_MEMORY[set][write_hit_way]          <= tag;
-            VALID[set][write_hit_way]                        <= 1'b1;
-            LRU_COUNTER[set][write_hit_way]                  <= 0;
+            CACHE_MEMORY[latched_set][write_hit_way][latched_offset] <= latched_data_in; 
+            DIRTY[latched_set][write_hit_way]                        <= 1'b1;
+            TAG_IN_CACHE_MEMORY[latched_set][write_hit_way]          <= latched_tag;
+            VALID[latched_set][write_hit_way]                        <= 1'b1;
+            LRU_COUNTER[latched_set][write_hit_way]                  <= 0;
             for (integer j = 0; j < WAY; j++) begin
-                if (j != write_hit_way && VALID[set][j]) begin
-                    LRU_COUNTER[set][j] <= LRU_COUNTER[set][j] + 1;
+                if (j != write_hit_way && VALID[latched_set][j]) begin
+                    LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
                 end
             end
         end
 
         else if(!write_hit_true) begin
-            free_way = -1;
-            for (integer i = 0; i < WAY; i++) begin
-                if(VALID[set][i] == 1'b0 && free_way == -1) begin
-                    free_way = i;
-                end
-            end
-            if(free_way != -1) begin
-                CACHE_MEMORY[set][free_way][offset]         <= data_in; 
-                TAG_IN_CACHE_MEMORY[set][free_way]          <= tag;
-                VALID[set][free_way]                        <= 1'b1;
-                DIRTY[set][free_way]                        <= 1'b1;
-                LRU_COUNTER[set][free_way]                  <= 0;
-                for (integer j = 0; j < WAY; j++) begin
-                    if (j != free_way && VALID[set][j]) begin
-                        LRU_COUNTER[set][j] <= LRU_COUNTER[set][j] + 1;
-                    end
-                end
-            end 
-            else begin
                 pending_write        <= 1;
-                pending_write_data   <= data_in;
-                pending_write_offset <= offset;
-            end    
+                pending_write_data   <= latched_data_in;
+                pending_write_offset <= latched_offset;
         end
     end
 
     read_miss: begin
-        latched_victim     <= get_replacement(latched_set);
-        victim_tag <= TAG_IN_CACHE_MEMORY[latched_set][get_replacement(latched_set)];        
+        if(&latched_valid == 0) begin
+            latched_victim <= free_way(latched_set);
+            victim_tag <= TAG_IN_CACHE_MEMORY[latched_set][free_way(latched_set)]; 
+        end 
+        else begin
+            latched_victim     <= get_replacement(latched_set);
+            victim_tag <= TAG_IN_CACHE_MEMORY[latched_set][get_replacement(latched_set)];     
+        end   
     end
 
     get_victim: begin
@@ -337,11 +329,10 @@ always @(posedge clk) begin
 
     write_back: begin
         if(write_back_true) begin
-            victim_addr = {victim_tag, latched_set, {OFFSET_WIDTH{1'b0}}, {BYTE_OFFSET{1'b0}}};
-            victim_block_addr = victim_addr[ADDRESS_WIDTH-1:OFFSET_WIDTH+BYTE_OFFSET];
+            victim_addr = {victim_tag, latched_set};
                 
             for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
-                MAIN_MEMORY[victim_block_addr][i] <= CACHE_MEMORY[latched_set][latched_victim][i];
+                MAIN_MEMORY[victim_addr[11 : 0]][i] <= CACHE_MEMORY[latched_set][latched_victim][i];
             end
             data_ready_main_mem <= 1'b1;
             VALID[latched_set][latched_victim]  <= 1'b0;
@@ -351,10 +342,10 @@ always @(posedge clk) begin
 
     read_from_main_mem: begin
         if(read_from_main_mem_true) begin
-            block_addr = mem_add[ADDRESS_WIDTH-1:OFFSET_WIDTH+BYTE_OFFSET];
+            block_addr = {latched_tag, latched_set};
 
             for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
-                CACHE_MEMORY[latched_set][latched_victim][i] <= MAIN_MEMORY[block_addr][i];
+                CACHE_MEMORY[latched_set][latched_victim][i] <= MAIN_MEMORY[block_addr[11 : 0]][i];
             end
             data_ready_main_mem                      <= 1'b0;
 
@@ -369,8 +360,15 @@ always @(posedge clk) begin
 
             TAG_IN_CACHE_MEMORY[latched_set][latched_victim] <= latched_tag;
             VALID[latched_set][latched_victim]               <= 1'b1;
+            LRU_COUNTER[latched_set][latched_victim] <= 0;
+            for (integer j = 0; j < WAY; j++) begin
+                if(j != latched_victim && VALID[latched_set][j]) begin
+                    LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
+                end
+            end
         end
     end
     endcase
 end
+
 endmodule
