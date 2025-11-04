@@ -46,13 +46,27 @@ Data Width:    32 bits [31 : 0]
 No. of sets = 256, hence 8 bits required to uniquely express each set (2^8 = 256)
 No. of words = 16 since 2^4 = 16 
 Remaining MSBs are used for tag matching. 
-┌─────────────┬──────────┬────────────┐
-│   Tag       │   Set    │   Offset   │
-│  [31:14]    │ [13:6]   │   [5:2]    │
-│  18 bits    │  8 bits  │   4 bits   │
-└─────────────┴──────────┴────────────┘
-              └──────────┴────────────┘
-                   Index: 12 bits
+
+```mermaid
+flowchart TB
+    A["32-bit Address<br/>[31:0]"]
+    
+    A --> B["Tag<br/>[31:14]<br/>18 bits"]
+    A --> C["Set Index<br/>[13:6]<br/>8 bits"]
+    A --> D["Word Offset<br/>[5:2]<br/>4 bits"]
+    A --> E["Byte Offset<br/>[1:0]<br/>2 bits"]
+    
+    B --> F["Identifies unique<br/>memory block"]
+    C --> G["Selects 1 of<br/>256 sets"]
+    D --> H["Selects 1 of<br/>16 words in block"]
+    E --> I["Byte within word<br/>(not used)"]
+    
+    style A fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style B fill:#ffe1e1,stroke:#333,stroke-width:2px
+    style C fill:#e1ffe1,stroke:#333,stroke-width:2px
+    style D fill:#fff3e1,stroke:#333,stroke-width:2px
+    style E fill:#f0f0f0,stroke:#333,stroke-width:2px
+```
 
 (Last 2 bits used as BYTE OFFSET)
 
