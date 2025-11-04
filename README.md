@@ -1,5 +1,5 @@
 # 4-Way Set Associative Cache (Using LRU Policy)
-A fully functional 4 way set associative cache implemented in system verilog and test using icarus.
+A fully functional 4 way set associative cache implemented in system verilog and tested using icarus.
 
 ## Overview
 This project features a 4 way set associative cache which uses LRU Policy for write-backs.
