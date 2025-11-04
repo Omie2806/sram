@@ -177,6 +177,613 @@ The testbench includes 11 comprehensive test scenarios:
 ### Test Results
 ```
 ╔════════════════════════════════════════════════════════╗
+║        Cache FSM Testbench - Comprehensive Test       ║
+╔════════════════════════════════════════════════════════╗
+
+
+Starting FSM state monitoring...
+
+  [FSM] → READ
+  [FSM] → READ
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+
+=== Initializing Main Memory ===
+Memory initialized with pattern: [block<<16 | word]
+
+=== Priming Cache ===
+Performing dummy read to initialize cache state...
+
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+Cache primed and ready!
+
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 1: Read Miss (Cold Start)                       ║
+╚════════════════════════════════════════════════════════╝
+
+[75] READ: Tag=0x00001, Set=0, Offset=0 (Addr=0x00004000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x01000000
+
+=== Cache State for Set 0 ===
+  Way 0: Valid=1, Dirty=0, Tag=0x00000, LRU=2
+         Data: 0x00000000 0x00000001 0x00000002 0x00000003 ...
+  Way 1: Valid=1, Dirty=0, Tag=0x00001, LRU=0
+         Data: 0x01000000 0x01000001 0x01000002 0x01000003 ...
+  Way 2: Valid=0, Dirty=0, Tag=0x00000, LRU=2
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+  Way 3: Valid=0, Dirty=0, Tag=0x00000, LRU=3
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+===========================
+
+  LRU Counters for Set 0:
+    Way 0: LRU=2, Valid=1, Dirty=0, Tag=0x0
+    Way 1: LRU=0, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 2: Read Hit (Same Location)                     ║
+╚════════════════════════════════════════════════════════╝
+
+[145] READ: Tag=0x00001, Set=0, Offset=0 (Addr=0x00004000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x01000000
+  LRU Counters for Set 0:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x0
+    Way 1: LRU=0, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 3: Read Different Offset in Same Block          ║
+╚════════════════════════════════════════════════════════╝
+
+[185] READ: Tag=0x00001, Set=0, Offset=5 (Addr=0x00004014)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x01000005
+  LRU Counters for Set 0:
+    Way 0: LRU=2, Valid=1, Dirty=0, Tag=0x0
+    Way 1: LRU=0, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 4: Fill All 4 Ways in Set 0                     ║
+╚════════════════════════════════════════════════════════╝
+
+Reading from 4 different tags to fill all ways in Set 0...
+
+[225] READ: Tag=0x00002, Set=0, Offset=0 (Addr=0x00008000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x02000000
+  LRU Counters for Set 0:
+    Way 0: LRU=1, Valid=1, Dirty=0, Tag=0x0
+    Way 1: LRU=2, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=0, Valid=1, Dirty=0, Tag=0x2
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+[295] READ: Tag=0x00003, Set=0, Offset=0 (Addr=0x0000c000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x03000000
+  LRU Counters for Set 0:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x0
+    Way 1: LRU=1, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=2, Valid=1, Dirty=0, Tag=0x2
+    Way 3: LRU=0, Valid=1, Dirty=0, Tag=0x3
+[365] READ: Tag=0x00004, Set=0, Offset=0 (Addr=0x00010000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x04000000
+  LRU Counters for Set 0:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x4
+    Way 1: LRU=0, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=1, Valid=1, Dirty=0, Tag=0x2
+    Way 3: LRU=2, Valid=1, Dirty=0, Tag=0x3
+
+All 4 ways filled! Final cache state:
+
+=== Cache State for Set 0 ===
+  Way 0: Valid=1, Dirty=0, Tag=0x00004, LRU=0
+         Data: 0x04000000 0x04000001 0x04000002 0x04000003 ...
+  Way 1: Valid=1, Dirty=0, Tag=0x00001, LRU=0
+         Data: 0x01000000 0x01000001 0x01000002 0x01000003 ...
+  Way 2: Valid=1, Dirty=0, Tag=0x00002, LRU=1
+         Data: 0x02000000 0x02000001 0x02000002 0x02000003 ...
+  Way 3: Valid=1, Dirty=0, Tag=0x00003, LRU=2
+         Data: 0x03000000 0x03000001 0x03000002 0x03000003 ...
+===========================
+
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 5: Access Each Way to Verify LRU Updates        ║
+╚════════════════════════════════════════════════════════╝
+
+Accessing Way 2 (Tag=0x00003)...
+[435] READ: Tag=0x00003, Set=0, Offset=0 (Addr=0x0000c000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x03000000
+  LRU Counters for Set 0:
+    Way 0: LRU=1, Valid=1, Dirty=0, Tag=0x4
+    Way 1: LRU=2, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=3, Valid=1, Dirty=0, Tag=0x2
+    Way 3: LRU=0, Valid=1, Dirty=0, Tag=0x3
+
+Accessing Way 0 (Tag=0x00001)...
+[475] READ: Tag=0x00001, Set=0, Offset=0 (Addr=0x00004000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x01000000
+  LRU Counters for Set 0:
+    Way 0: LRU=3, Valid=1, Dirty=0, Tag=0x4
+    Way 1: LRU=0, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=1, Valid=1, Dirty=0, Tag=0x2
+    Way 3: LRU=1, Valid=1, Dirty=0, Tag=0x3
+
+Accessing Way 3 (Tag=0x00004)...
+[515] READ: Tag=0x00004, Set=0, Offset=0 (Addr=0x00010000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x04000000
+  LRU Counters for Set 0:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x4
+    Way 1: LRU=1, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=3, Valid=1, Dirty=0, Tag=0x2
+    Way 3: LRU=3, Valid=1, Dirty=0, Tag=0x3
+
+Accessing Way 1 (Tag=0x00002)...
+[555] READ: Tag=0x00002, Set=0, Offset=0 (Addr=0x00008000)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x02000000
+  LRU Counters for Set 0:
+    Way 0: LRU=1, Valid=1, Dirty=0, Tag=0x4
+    Way 1: LRU=3, Valid=1, Dirty=0, Tag=0x1
+    Way 2: LRU=0, Valid=1, Dirty=0, Tag=0x2
+    Way 3: LRU=1, Valid=1, Dirty=0, Tag=0x3
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 6: Write Hit                                     ║
+╚════════════════════════════════════════════════════════╝
+
+[595] WRITE: Tag=0x00001, Set=0, Offset=0, Data=0xdeadbeef (Addr=0x00004000)
+  [FSM] → IDLE
+  [FSM] → WRITE
+  [FSM] → IDLE
+  [FSM] → WRITE
+  → WRITE HIT!
+  [FSM] → IDLE
+
+=== Cache State for Set 0 ===
+  Way 0: Valid=1, Dirty=0, Tag=0x00004, LRU=3
+         Data: 0x04000000 0x04000001 0x04000002 0x04000003 ...
+  Way 1: Valid=1, Dirty=1, Tag=0x00001, LRU=0
+         Data: 0xdeadbeef 0x01000001 0x01000002 0x01000003 ...
+  Way 2: Valid=1, Dirty=0, Tag=0x00002, LRU=1
+         Data: 0x02000000 0x02000001 0x02000002 0x02000003 ...
+  Way 3: Valid=1, Dirty=0, Tag=0x00003, LRU=3
+         Data: 0x03000000 0x03000001 0x03000002 0x03000003 ...
+===========================
+
+  LRU Counters for Set 0:
+    Way 0: LRU=3, Valid=1, Dirty=0, Tag=0x4
+    Way 1: LRU=0, Valid=1, Dirty=1, Tag=0x1
+    Way 2: LRU=1, Valid=1, Dirty=0, Tag=0x2
+    Way 3: LRU=3, Valid=1, Dirty=0, Tag=0x3
+Verifying write with read...
+[645] READ: Tag=0x00001, Set=0, Offset=0 (Addr=0x00004000)
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0xdeadbeef
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 7: Write Miss (Write-Allocate) in Set 1         ║
+╚════════════════════════════════════════════════════════╝
+
+[675] WRITE: Tag=0x00010, Set=1, Offset=3, Data=0xcafebabe (Addr=0x0004004c)
+  [FSM] → IDLE
+  [FSM] → WRITE
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → IDLE
+  [FSM] → WRITE
+  → WRITE HIT!
+  [FSM] → IDLE
+
+=== Cache State for Set 1 ===
+  Way 0: Valid=1, Dirty=1, Tag=0x00010, LRU=0
+         Data: 0x00010000 0x00010001 0x00010002 0xcafebabe ...
+  Way 1: Valid=0, Dirty=0, Tag=0x00000, LRU=1
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+  Way 2: Valid=0, Dirty=0, Tag=0x00000, LRU=2
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+  Way 3: Valid=0, Dirty=0, Tag=0x00000, LRU=3
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+===========================
+
+  LRU Counters for Set 1:
+    Way 0: LRU=0, Valid=1, Dirty=1, Tag=0x10
+    Way 1: LRU=1, Valid=0, Dirty=0, Tag=0x0
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+Verifying write with read...
+[745] READ: Tag=0x00010, Set=1, Offset=3 (Addr=0x0004004c)
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0xcafebabe
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 8: Multiple Reads to Different Sets             ║
+╚════════════════════════════════════════════════════════╝
+
+
+--- Testing Set 2 ---
+[775] READ: Tag=0x00100, Set=2, Offset=0 (Addr=0x00400080)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x00020000
+  LRU Counters for Set 2:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x100
+    Way 1: LRU=1, Valid=0, Dirty=0, Tag=0x0
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+
+--- Testing Set 3 ---
+[845] READ: Tag=0x00100, Set=3, Offset=0 (Addr=0x004000c0)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x00030000
+  LRU Counters for Set 3:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x100
+    Way 1: LRU=1, Valid=0, Dirty=0, Tag=0x0
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+
+--- Testing Set 4 ---
+[915] READ: Tag=0x00100, Set=4, Offset=0 (Addr=0x00400100)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x00040000
+  LRU Counters for Set 4:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x100
+    Way 1: LRU=1, Valid=0, Dirty=0, Tag=0x0
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+
+--- Testing Set 5 ---
+[985] READ: Tag=0x00100, Set=5, Offset=0 (Addr=0x00400140)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x00050000
+  LRU Counters for Set 5:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x100
+    Way 1: LRU=1, Valid=0, Dirty=0, Tag=0x0
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 9: Fill Multiple Ways in Set 5                  ║
+╚════════════════════════════════════════════════════════╝
+
+[1055] READ: Tag=0x01000, Set=5, Offset=0 (Addr=0x04000140)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x00050000
+[1125] READ: Tag=0x01001, Set=5, Offset=0 (Addr=0x04004140)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x01050000
+[1195] READ: Tag=0x01002, Set=5, Offset=0 (Addr=0x04008140)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x02050000
+
+=== Cache State for Set 5 ===
+  Way 0: Valid=1, Dirty=0, Tag=0x00100, LRU=0
+         Data: 0x00050000 0x00050001 0x00050002 0x00050003 ...
+  Way 1: Valid=1, Dirty=0, Tag=0x01000, LRU=1
+         Data: 0x00050000 0x00050001 0x00050002 0x00050003 ...
+  Way 2: Valid=1, Dirty=0, Tag=0x01001, LRU=2
+         Data: 0x01050000 0x01050001 0x01050002 0x01050003 ...
+  Way 3: Valid=1, Dirty=0, Tag=0x01002, LRU=0
+         Data: 0x02050000 0x02050001 0x02050002 0x02050003 ...
+===========================
+
+Accessing ways in different order to test LRU...
+[1265] READ: Tag=0x01001, Set=5, Offset=0 (Addr=0x04004140)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x01050000
+  LRU Counters for Set 5:
+    Way 0: LRU=2, Valid=1, Dirty=0, Tag=0x100
+    Way 1: LRU=3, Valid=1, Dirty=0, Tag=0x1000
+    Way 2: LRU=0, Valid=1, Dirty=0, Tag=0x1001
+    Way 3: LRU=1, Valid=1, Dirty=0, Tag=0x1002
+[1305] READ: Tag=0x01000, Set=5, Offset=0 (Addr=0x04000140)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x00050000
+  LRU Counters for Set 5:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x100
+    Way 1: LRU=0, Valid=1, Dirty=0, Tag=0x1000
+    Way 2: LRU=1, Valid=1, Dirty=0, Tag=0x1001
+    Way 3: LRU=3, Valid=1, Dirty=0, Tag=0x1002
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 10: Read Entire Block (All Offsets)             ║
+╚════════════════════════════════════════════════════════╝
+
+Reading all 16 words from Tag=0x00020, Set=10...
+
+[1345] READ: Tag=0x00020, Set=10, Offset=0 (Addr=0x00080280)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0000
+[1415] READ: Tag=0x00020, Set=10, Offset=1 (Addr=0x00080284)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0001
+[1455] READ: Tag=0x00020, Set=10, Offset=2 (Addr=0x00080288)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0002
+[1495] READ: Tag=0x00020, Set=10, Offset=3 (Addr=0x0008028c)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0003
+[1535] READ: Tag=0x00020, Set=10, Offset=4 (Addr=0x00080290)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0004
+[1575] READ: Tag=0x00020, Set=10, Offset=5 (Addr=0x00080294)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0005
+[1615] READ: Tag=0x00020, Set=10, Offset=6 (Addr=0x00080298)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0006
+[1655] READ: Tag=0x00020, Set=10, Offset=7 (Addr=0x0008029c)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0007
+[1695] READ: Tag=0x00020, Set=10, Offset=8 (Addr=0x000802a0)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0008
+[1735] READ: Tag=0x00020, Set=10, Offset=9 (Addr=0x000802a4)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a0009
+[1775] READ: Tag=0x00020, Set=10, Offset=10 (Addr=0x000802a8)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a000a
+[1815] READ: Tag=0x00020, Set=10, Offset=11 (Addr=0x000802ac)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a000b
+[1855] READ: Tag=0x00020, Set=10, Offset=12 (Addr=0x000802b0)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a000c
+[1895] READ: Tag=0x00020, Set=10, Offset=13 (Addr=0x000802b4)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a000d
+[1935] READ: Tag=0x00020, Set=10, Offset=14 (Addr=0x000802b8)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a000e
+[1975] READ: Tag=0x00020, Set=10, Offset=15 (Addr=0x000802bc)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0x000a000f
+
+=== Cache State for Set 10 ===
+  Way 0: Valid=1, Dirty=0, Tag=0x00020, LRU=0
+         Data: 0x000a0000 0x000a0001 0x000a0002 0x000a0003 ...
+  Way 1: Valid=0, Dirty=0, Tag=0x00000, LRU=1
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+  Way 2: Valid=0, Dirty=0, Tag=0x00000, LRU=2
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+  Way 3: Valid=0, Dirty=0, Tag=0x00000, LRU=3
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+===========================
+
+  LRU Counters for Set 10:
+    Way 0: LRU=0, Valid=1, Dirty=0, Tag=0x20
+    Way 1: LRU=1, Valid=0, Dirty=0, Tag=0x0
+    Way 2: LRU=2, Valid=0, Dirty=0, Tag=0x0
+    Way 3: LRU=3, Valid=0, Dirty=0, Tag=0x0
+
+╔════════════════════════════════════════════════════════╗
+║  TEST 11: Write to Multiple Offsets in Same Block     ║
+╚════════════════════════════════════════════════════════╝
+
+[2015] WRITE: Tag=0x00030, Set=15, Offset=0, Data=0xa0000000 (Addr=0x000c03c0)
+  [FSM] → IDLE
+  [FSM] → WRITE
+  [FSM] → READ_MISS
+  [FSM] → READ_FROM_MAIN_MEM
+  [FSM] → IDLE
+  [FSM] → WRITE
+  → WRITE HIT!
+  [FSM] → IDLE
+[2085] WRITE: Tag=0x00030, Set=15, Offset=1, Data=0xa0000100 (Addr=0x000c03c4)
+  [FSM] → WRITE
+  [FSM] → IDLE
+  [FSM] → WRITE
+  → WRITE HIT!
+  [FSM] → IDLE
+[2125] WRITE: Tag=0x00030, Set=15, Offset=2, Data=0xa0000200 (Addr=0x000c03c8)
+  [FSM] → WRITE
+  [FSM] → IDLE
+  [FSM] → WRITE
+  → WRITE HIT!
+  [FSM] → IDLE
+[2165] WRITE: Tag=0x00030, Set=15, Offset=3, Data=0xa0000300 (Addr=0x000c03cc)
+  [FSM] → WRITE
+  [FSM] → IDLE
+  [FSM] → WRITE
+  → WRITE HIT!
+  [FSM] → IDLE
+
+=== Cache State for Set 15 ===
+  Way 0: Valid=1, Dirty=1, Tag=0x00030, LRU=0
+         Data: 0xa0000000 0xa0000100 0xa0000200 0xa0000300 ...
+  Way 1: Valid=0, Dirty=0, Tag=0x00000, LRU=1
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+  Way 2: Valid=0, Dirty=0, Tag=0x00000, LRU=2
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+  Way 3: Valid=0, Dirty=0, Tag=0x00000, LRU=3
+         Data: 0x00000000 0x00000000 0x00000000 0x00000000 ...
+===========================
+
+
+Verifying writes...
+[2205] READ: Tag=0x00030, Set=15, Offset=0 (Addr=0x000c03c0)
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0xa0000000
+[2235] READ: Tag=0x00030, Set=15, Offset=1 (Addr=0x000c03c4)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0xa0000100
+[2275] READ: Tag=0x00030, Set=15, Offset=2 (Addr=0x000c03c8)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0xa0000200
+[2315] READ: Tag=0x00030, Set=15, Offset=3 (Addr=0x000c03cc)
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  → HIT! Data=0xa0000300
+
+╔════════════════════════════════════════════════════════╗
 ║                   TEST SUMMARY                         ║
 ╚════════════════════════════════════════════════════════╝
 
@@ -194,6 +801,19 @@ The testbench includes 11 comprehensive test scenarios:
 ╔════════════════════════════════════════════════════════╗
 ║            All Tests Completed Successfully!           ║
 ╚════════════════════════════════════════════════════════╝
+
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+  [FSM] → IDLE
+  [FSM] → READ
+om@om-LOQ-15IAX9:~/Desktop/verilog/sram implementation$ 
+
 ```
 
 ### Performance Metrics
