@@ -174,6 +174,197 @@ The testbench includes 11 comprehensive test scenarios:
 10.**Full Block Read** - All offsets in block
 11.**Multi-Offset Write** - Multiple writes to same block
 
+
+## Key Implementations
+
+### LRU Replacement 
+
+>replaces the least recently used block
+
+function automatic integer get_replacement;
+input [SET_WIDTH - 1 : 0] set_index;
+    begin
+    integer max;
+    integer victim;
+        max    = -1;
+        victim = 0;
+
+        for (integer i = 0; i < WAY; i++) begin
+            if (LRU_COUNTER[set_index][i] > max) begin
+                max    = LRU_COUNTER[set_index][i];
+                victim = i;
+            end
+        end
+        return victim;
+    end
+endfunction
+
+### Free-Way selection
+
+>override LRU when a write miss occurs and a free block/way is availabe
+
+function automatic integer free_way;
+input[SET_WIDTH - 1 : 0] set_index;
+    begin
+        for (integer i = 0; i < WAY; i++) begin
+            if(VALID[set_index][i] == 1'b0) begin
+                return i;
+            end
+        end
+    end
+endfunction
+
+### Latch onto the address and data received (write)
+
+>save the address and received that so that write backs and other multicycle operations can be performed 
+
+latched_set    <= set;
+latched_tag    <= tag;
+latched_offset <= offset;
+latched_data_in <= data_in;
+
+
+### Critical Path Analysis
+
+The critical path in the design is:
+1. Tag comparison (parallel across 4 ways)
+2. Hit detection (OR of 4 comparisons)
+3. Way selection multiplexing
+4. Data output
+
+## Debugging Journey
+
+### Challenge 1: Single-Cycle to Multi-Cycle Redesign
+
+**Problem:** Initially designed the cache as a single-cycle memory system, which didn't properly model real cache behavior.
+
+**Root Cause:** Misunderstanding of cache timing - hits and misses have different latencies.
+
+**Solution:** Complete FSM redesign with 7 states to handle multi-cycle operations (hits, misses, writebacks).
+
+**Learning:** Cache operations aren't uniform - FSMs are essential for managing different access patterns.
+
+
+### Challenge 2: LRU Counter Updates for Invalid Blocks
+
+**Problem:** LRU counters were being updated even for invalid ways, causing two ways to have the same LRU value after repeated accesses to one block.
+
+**Root Cause:** LRU update logic didn't check validity before incrementing counters.
+
+**Solution:** Modified update logic to only affect valid ways. The LRU selection function already prioritized valid blocks, so this fixed the counter divergence.
+
+**Impact:** While the original bug didn't break functionality (victim selection was still correct), the fix ensures cleaner state representation and easier debugging.
+```systemverilog
+// Fixed LRU update
+LRU_COUNTER[latched_set][i]       <= 0;
+for (integer j = 0; j < WAY; j++) begin
+    if(j != i && VALID[latched_set][j]) begin
+        LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
+    end
+end
+```
+**Learning:** Edge cases with partially-filled caches require careful attention to validity bits.
+
+
+### Challenge 3: Address Latching Timing
+
+**Problem:** Not latching address and data early enough caused timing synchronization issues - operations were using stale or incorrect addresses.
+
+**Root Cause:** Address was being captured in the wrong FSM state, causing offset and data misalignment.
+
+**Solution:** Latch address and write data in IDLE state before transitioning to READ/WRITE states:
+```systemverilog
+IDLE: begin
+    if (read_en || write_en) begin
+        latched_set    <= set;
+        latched_tag    <= tag;
+        latched_offset <= offset;
+        latched_data_in <= data_in;  // For writes
+    end
+end
+```
+**Learning:** In multi-cycle FSMs, signal latching timing is critical. Capture inputs at state entry, not during state execution.
+
+
+### Challenge 4: Memory Initialization
+
+**Problem:** Main memory returned `'x'` (undefined) values on reads.
+
+**Root Cause:** Memory array wasn't properly initialized in simulation.
+
+**Solution:** Added initialization block:
+```systemverilog
+initial begin
+    for (int i = 0; i < MEM_SIZE; i++) begin
+        main_memory[i] = (i << 16) | i;  // Pattern for testing
+    end
+end
+```
+
+**Learning:** Always initialize memories in simulation, even if synthesis handles it differently.
+
+
+### Challenge 5: Writeback Address Calculation
+
+**Problem:** Dirty victim blocks were being written back to incorrect memory addresses.
+
+**Root Cause:** Wasn't properly reconstructing full address from victim's tag and set index.
+
+**Solution:** Correct address reconstruction:
+```systemverilog
+ victim_addr = {victim_tag, latched_set};
+```
+**Learning:** Address composition/decomposition must be consistent throughout the design.
+
+
+**Debugging Methodology:**
+1. **Isolate**: Test each component independently
+2. **Assertions**: Add checks for impossible states
+3. **Incremental**: Fix one bug at a time, verify, then move on
+
+
+## What I Learned
+
+### Technical Skills
+
+- **FSM Design:** Importance of proper state transitions and timing
+- **Memory Hierarchies:** Trade-offs between associativity, size, and complexity
+- **Replacement Policies:** LRU implementation and hardware costs
+- **Write Policies:** Write-back vs write-through trade-offs
+- **Timing Analysis:** Critical importance of signal latching timing
+
+### Best Practices
+
+- **Incremental Testing:** Test each component before integration
+- **Documentation:** Clear comments and diagrams save debugging time
+- **Parameterization:** Configurable designs are more flexible and reusable
+
+
+## Future implementation
+
+- **Psuedo LRU Behaviour:** To reduce hardware complexity for synthesis
+- **Performing other operations while handling misses:** Perform reads and writes for other addresses while handling previous misses
+- **Performance Counters**: Add hit/miss rate monitoring 
+- **Multi-Level Cache**: Add L2 cache support
+- **Integration with a RISC-V CPU**
+
+## 👨‍💻 Author
+
+**[Your Name]**
+- GitHub: [@Omie2806](https://github.com/Omie2806)
+- Email: omgupta2806@gmail.com
+
+*2nd Year Electronics Engineering student*  
+*VJTI Mumbai*
+
+
+## ⭐ Acknowledgments
+
+- Thanks to the open-source hardware community
+- Inspired by Digital System design by Harris and Harris
+- Digital System design NPTEL course 
+- Claude AI for testbenches and help with debugging
+
 ### Test Results
 ```
 ╔════════════════════════════════════════════════════════╗
@@ -822,196 +1013,6 @@ om@om-LOQ-15IAX9:~/Desktop/verilog/sram implementation$
 - **Miss Penalty:** ~6 cycles (memory fetch + state transitions)
 - **Write-back Penalty:** ~7 cycles (when evicting dirty block)
 - **Simulation Coverage:** 100% functional coverage achieved
-
-## Key Implementations
-
-### LRU Replacement 
-
->replaces the least recently used block
-
-function automatic integer get_replacement;
-input [SET_WIDTH - 1 : 0] set_index;
-    begin
-    integer max;
-    integer victim;
-        max    = -1;
-        victim = 0;
-
-        for (integer i = 0; i < WAY; i++) begin
-            if (LRU_COUNTER[set_index][i] > max) begin
-                max    = LRU_COUNTER[set_index][i];
-                victim = i;
-            end
-        end
-        return victim;
-    end
-endfunction
-
-### Free-Way selection
-
->override LRU when a write miss occurs and a free block/way is availabe
-
-function automatic integer free_way;
-input[SET_WIDTH - 1 : 0] set_index;
-    begin
-        for (integer i = 0; i < WAY; i++) begin
-            if(VALID[set_index][i] == 1'b0) begin
-                return i;
-            end
-        end
-    end
-endfunction
-
-### Latch onto the address and data received (write)
-
->save the address and received that so that write backs and other multicycle operations can be performed 
-
-latched_set    <= set;
-latched_tag    <= tag;
-latched_offset <= offset;
-latched_data_in <= data_in;
-
-
-### Critical Path Analysis
-
-The critical path in the design is:
-1. Tag comparison (parallel across 4 ways)
-2. Hit detection (OR of 4 comparisons)
-3. Way selection multiplexing
-4. Data output
-
-## Debugging Journey
-
-### Challenge 1: Single-Cycle to Multi-Cycle Redesign
-
-**Problem:** Initially designed the cache as a single-cycle memory system, which didn't properly model real cache behavior.
-
-**Root Cause:** Misunderstanding of cache timing - hits and misses have different latencies.
-
-**Solution:** Complete FSM redesign with 7 states to handle multi-cycle operations (hits, misses, writebacks).
-
-**Learning:** Cache operations aren't uniform - FSMs are essential for managing different access patterns.
-
-
-### Challenge 2: LRU Counter Updates for Invalid Blocks
-
-**Problem:** LRU counters were being updated even for invalid ways, causing two ways to have the same LRU value after repeated accesses to one block.
-
-**Root Cause:** LRU update logic didn't check validity before incrementing counters.
-
-**Solution:** Modified update logic to only affect valid ways. The LRU selection function already prioritized valid blocks, so this fixed the counter divergence.
-
-**Impact:** While the original bug didn't break functionality (victim selection was still correct), the fix ensures cleaner state representation and easier debugging.
-```systemverilog
-// Fixed LRU update
-LRU_COUNTER[latched_set][i]       <= 0;
-for (integer j = 0; j < WAY; j++) begin
-    if(j != i && VALID[latched_set][j]) begin
-        LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
-    end
-end
-```
-**Learning:** Edge cases with partially-filled caches require careful attention to validity bits.
-
-
-### Challenge 3: Address Latching Timing
-
-**Problem:** Not latching address and data early enough caused timing synchronization issues - operations were using stale or incorrect addresses.
-
-**Root Cause:** Address was being captured in the wrong FSM state, causing offset and data misalignment.
-
-**Solution:** Latch address and write data in IDLE state before transitioning to READ/WRITE states:
-```systemverilog
-IDLE: begin
-    if (read_en || write_en) begin
-        latched_set    <= set;
-        latched_tag    <= tag;
-        latched_offset <= offset;
-        latched_data_in <= data_in;  // For writes
-    end
-end
-```
-**Learning:** In multi-cycle FSMs, signal latching timing is critical. Capture inputs at state entry, not during state execution.
-
-
-### Challenge 4: Memory Initialization
-
-**Problem:** Main memory returned `'x'` (undefined) values on reads.
-
-**Root Cause:** Memory array wasn't properly initialized in simulation.
-
-**Solution:** Added initialization block:
-```systemverilog
-initial begin
-    for (int i = 0; i < MEM_SIZE; i++) begin
-        main_memory[i] = (i << 16) | i;  // Pattern for testing
-    end
-end
-```
-
-**Learning:** Always initialize memories in simulation, even if synthesis handles it differently.
-
-
-### Challenge 5: Writeback Address Calculation
-
-**Problem:** Dirty victim blocks were being written back to incorrect memory addresses.
-
-**Root Cause:** Wasn't properly reconstructing full address from victim's tag and set index.
-
-**Solution:** Correct address reconstruction:
-```systemverilog
- victim_addr = {victim_tag, latched_set};
-```
-**Learning:** Address composition/decomposition must be consistent throughout the design.
-
-
-**Debugging Methodology:**
-1. **Isolate**: Test each component independently
-2. **Assertions**: Add checks for impossible states
-3. **Incremental**: Fix one bug at a time, verify, then move on
-
-
-## What I Learned
-
-### Technical Skills
-
-- **FSM Design:** Importance of proper state transitions and timing
-- **Memory Hierarchies:** Trade-offs between associativity, size, and complexity
-- **Replacement Policies:** LRU implementation and hardware costs
-- **Write Policies:** Write-back vs write-through trade-offs
-- **Timing Analysis:** Critical importance of signal latching timing
-
-### Best Practices
-
-- **Incremental Testing:** Test each component before integration
-- **Documentation:** Clear comments and diagrams save debugging time
-- **Parameterization:** Configurable designs are more flexible and reusable
-
-
-## Future implementation
-
-- **Psuedo LRU Behaviour:** To reduce hardware complexity for synthesis
-- **Performing other operations while handling misses:** Perform reads and writes for other addresses while handling previous misses
-- **Performance Counters**: Add hit/miss rate monitoring 
-- **Multi-Level Cache**: Add L2 cache support
-- **Integration with a RISC-V CPU**
-
-## 👨‍💻 Author
-
-**[Your Name]**
-- GitHub: [@Omie2806](https://github.com/Omie2806)
-- Email: omgupta2806@gmail.com
-
-*2nd Year Electronics Engineering student*  
-*VJTI Mumbai*
-
-
-## ⭐ Acknowledgments
-
-- Thanks to the open-source hardware community
-- Inspired by Digital System design by Harris and Harris
-- Digital System design NPTEL course 
-- Claude AI for testbenches and help with debugging
 
 
 
