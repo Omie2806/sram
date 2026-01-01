@@ -4,7 +4,7 @@ A fully functional 4 way set associative cache implemented in system verilog and
 ## Overview
 This project features a 4 way set associative cache which uses LRU Policy for write-backs.
 **Project status:** Completed and Verified.
-**Development Time:** October - November 2024  
+**Development Time:** September - November 2025  
 **Language:** SystemVerilog  
 
 ## Key features:
