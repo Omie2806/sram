@@ -106,18 +106,6 @@ stateDiagram-v2
     end note
 ```
 
-### State Descriptions
-
-| State | Description | Duration |
-|-------|-------------|----------|
-| **IDLE** | Waiting for read or write request | 1 cycle |
-| **READ** | Tag comparison and hit detection for reads | 1 cycle (hit) |
-| **WRITE** | Tag comparison and hit detection for writes | 1 cycle (hit) |
-| **READ_MISS** | Determine if victim writeback needed | 1 cycle |
-| **GET_VICTIM** | Select LRU way for replacement | 1 cycle |
-| **WRITE_BACK** | Write dirty victim block to main memory | ~7 cycles |
-| **READ_FROM_MEM** | Fetch new block from main memory | ~6 cycles |
-
 ### State Transitions & Performance
 
 **Read Hit:** `IDLE → READ → IDLE` (2 cycles)
@@ -242,31 +230,8 @@ The critical path in the design is:
 
 **Solution:** Complete FSM redesign with 7 states to handle multi-cycle operations (hits, misses, writebacks).
 
-**Learning:** Cache operations aren't uniform - FSMs are essential for managing different access patterns.
 
-
-### Challenge 2: LRU Counter Updates for Invalid Blocks
-
-**Problem:** LRU counters were being updated even for invalid ways, causing two ways to have the same LRU value after repeated accesses to one block.
-
-**Root Cause:** LRU update logic didn't check validity before incrementing counters.
-
-**Solution:** Modified update logic to only affect valid ways. The LRU selection function already prioritized valid blocks, so this fixed the counter divergence.
-
-**Impact:** While the original bug didn't break functionality (victim selection was still correct), the fix ensures cleaner state representation and easier debugging.
-```systemverilog
-// Fixed LRU update
-LRU_COUNTER[latched_set][i]       <= 0;
-for (integer j = 0; j < WAY; j++) begin
-    if(j != i && VALID[latched_set][j]) begin
-        LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
-    end
-end
-```
-**Learning:** Edge cases with partially-filled caches require careful attention to validity bits.
-
-
-### Challenge 3: Address Latching Timing
+### Challenge 2: Address Latching Timing
 
 **Problem:** Not latching address and data early enough caused timing synchronization issues - operations were using stale or incorrect addresses.
 
@@ -283,28 +248,9 @@ IDLE: begin
     end
 end
 ```
-**Learning:** In multi-cycle FSMs, signal latching timing is critical. Capture inputs at state entry, not during state execution.
 
 
-### Challenge 4: Memory Initialization
-
-**Problem:** Main memory returned `'x'` (undefined) values on reads.
-
-**Root Cause:** Memory array wasn't properly initialized in simulation.
-
-**Solution:** Added initialization block:
-```systemverilog
-initial begin
-    for (int i = 0; i < MEM_SIZE; i++) begin
-        main_memory[i] = (i << 16) | i;  // Pattern for testing
-    end
-end
-```
-
-**Learning:** Always initialize memories in simulation, even if synthesis handles it differently.
-
-
-### Challenge 5: Writeback Address Calculation
+### Challenge 3: Writeback Address Calculation
 
 **Problem:** Dirty victim blocks were being written back to incorrect memory addresses.
 
@@ -314,13 +260,6 @@ end
 ```systemverilog
  victim_addr = {victim_tag, latched_set};
 ```
-**Learning:** Address composition/decomposition must be consistent throughout the design.
-
-
-**Debugging Methodology:**
-1. **Isolate**: Test each component independently
-2. **Assertions**: Add checks for impossible states
-3. **Incremental**: Fix one bug at a time, verify, then move on
 
 
 ## What I Learned
@@ -328,16 +267,9 @@ end
 ### Technical Skills
 
 - **FSM Design:** Importance of proper state transitions and timing
-- **Memory Hierarchies:** Trade-offs between associativity, size, and complexity
 - **Replacement Policies:** LRU implementation and hardware costs
 - **Write Policies:** Write-back vs write-through trade-offs
 - **Timing Analysis:** Critical importance of signal latching timing
-
-### Best Practices
-
-- **Incremental Testing:** Test each component before integration
-- **Documentation:** Clear comments and diagrams save debugging time
-- **Parameterization:** Configurable designs are more flexible and reusable
 
 
 ## Future implementation
@@ -354,13 +286,12 @@ end
 - GitHub: [@Omie2806](https://github.com/Omie2806)
 - Email: omgupta2806@gmail.com
 
-*2nd Year Electronics Engineering student*  
+*Electronics Engineering*  
 *VJTI Mumbai*
 
 
 ## Acknowledgments
 
-- Thanks to the open-source hardware community
 - Inspired by Digital System design by Harris and Harris
 - Digital System design NPTEL course 
 - Claude AI for testbenches and help with debugging
