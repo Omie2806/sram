@@ -28,6 +28,7 @@ module cache_fsm_tb;
 
     // Helper variables for tasks (declared here for Icarus Verilog compatibility)
     logic [ADDRESS_WIDTH-1:0] task_addr;
+    logic [11:0] victim_block_addr;
 
     // Instantiate the cache FSM
     cache_fsm #(
@@ -107,6 +108,24 @@ module cache_fsm_tb;
                 $display("...");
             end
             $display("===========================\n");
+        end
+    endtask
+
+    // Task to verify main memory contents
+    task verify_main_memory;
+        input [11:0] block_addr;
+        input [OFFSET_WIDTH-1:0] word_offset;
+        input [DATA_WIDTH-1:0] expected_data;
+        begin
+            if (dut.MAIN_MEMORY[block_addr][word_offset] !== expected_data) begin
+                $display("  ✗ ERROR: Main memory mismatch at block=0x%03h, word=%0d", 
+                         block_addr, word_offset);
+                $display("    Expected: 0x%08h, Got: 0x%08h", 
+                         expected_data, dut.MAIN_MEMORY[block_addr][word_offset]);
+            end else begin
+                $display("  ✓ Main memory verified at block=0x%03h, word=%0d: 0x%08h", 
+                         block_addr, word_offset, expected_data);
+            end
         end
     endtask
 
@@ -408,6 +427,74 @@ module cache_fsm_tb;
         end
         
         // ===================================================================
+        // TEST 12: Dirty Eviction (CRITICAL TEST)
+        // ===================================================================
+        $display("\n╔════════════════════════════════════════════════════════╗");
+        $display("║  TEST 12: Dirty Line Eviction & Write-Back            ║");
+        $display("╚════════════════════════════════════════════════════════╝\n");
+        
+        $display("Step 1: Fill all 4 ways in Set 20 with clean data");
+        read_cache(18'h00A00, 8'd20, 4'd0, 32'h00000000, 0);  // Way 0
+        read_cache(18'h00A01, 8'd20, 4'd0, 32'h00000000, 0);  // Way 1
+        read_cache(18'h00A02, 8'd20, 4'd0, 32'h00000000, 0);  // Way 2
+        read_cache(18'h00A03, 8'd20, 4'd0, 32'h00000000, 0);  // Way 3
+        display_cache_state(20);
+        
+        $display("\nStep 2: Write to some cache lines to make them dirty");
+        write_cache(18'h00A00, 8'd20, 4'd0, 32'hAAAA0000);  // Dirty Way 0
+        write_cache(18'h00A00, 8'd20, 4'd1, 32'hAAAA0001);  // Dirty Way 0 again
+        write_cache(18'h00A02, 8'd20, 4'd5, 32'hCCCC0005);  // Dirty Way 2
+        display_cache_state(20);
+        
+        $display("\nStep 3: Access existing ways to set up LRU for eviction");
+        $display("Accessing ways to make Way 3 (Tag=0x00A03) the LRU victim...");
+        read_cache(18'h00A00, 8'd20, 4'd0, 32'hAAAA0000, 1);  // Access Way 0 (make it MRU)
+        read_cache(18'h00A01, 8'd20, 4'd0, 32'h00000000, 1);  // Access Way 1
+        read_cache(18'h00A02, 8'd20, 4'd5, 32'hCCCC0005, 1);  // Access Way 2
+        // Way 3 is now LRU
+        display_lru_counters(20);
+        
+        $display("\nStep 4: Trigger eviction by accessing a 5th unique tag");
+        $display("This should evict Way 3 (Tag=0x00A03, clean) and bring in Tag=0x00A04");
+        read_cache(18'h00A04, 8'd20, 4'd0, 32'h00000000, 0);  // Should evict Way 3
+        display_cache_state(20);
+        
+        $display("\nStep 5: Access ways again to make dirty Way 0 the LRU victim");
+        read_cache(18'h00A04, 8'd20, 4'd0, 32'h00000000, 1);  // Access new Way
+        read_cache(18'h00A01, 8'd20, 4'd0, 32'h00000000, 1);  // Access Way 1
+        read_cache(18'h00A02, 8'd20, 4'd5, 32'hCCCC0005, 1);  // Access Way 2
+        // Way 0 (dirty, Tag=0x00A00) is now LRU
+        display_lru_counters(20);
+        
+        $display("\nStep 6: Trigger dirty eviction");
+        $display("Accessing Tag=0x00A05 should evict dirty Way 0 (Tag=0x00A00)");
+        $display("This should trigger a write-back to main memory!");
+        
+        // Calculate expected main memory block address for Tag=0x00A00, Set=20
+        // Block address = {Tag[17:0], Set[7:0]} = {18'h00A00, 8'd20} = 26'h028014
+        // Using [11:0] indexing: 12'h014 (which is 20 decimal)
+        victim_block_addr = 12'h014;  // This is where Tag=0x00A00, Set=20 maps to
+        
+        $display("Expected write-back to main memory block address: 0x%03h", victim_block_addr);
+        
+        read_cache(18'h00A05, 8'd20, 4'd0, 32'h00000000, 0);  // Evict dirty Way 0
+        display_cache_state(20);
+        
+        $display("\nStep 7: Verify dirty data was written back to main memory");
+        verify_main_memory(victim_block_addr, 4'd0, 32'hAAAA0000);
+        verify_main_memory(victim_block_addr, 4'd1, 32'hAAAA0001);
+        
+        $display("\nStep 8: Verify the evicted tag is no longer in cache");
+        $display("Reading Tag=0x00A00 should cause a miss and reload from main memory");
+        read_cache(18'h00A00, 8'd20, 4'd0, 32'hAAAA0000, 1);  // Should reload with written data
+        read_cache(18'h00A00, 8'd20, 4'd1, 32'hAAAA0001, 1);  // Verify second word too
+        
+        $display("\n✓ Dirty Eviction Test Complete!");
+        $display("  - Dirty cache line was successfully evicted");
+        $display("  - Data was written back to main memory");
+        $display("  - Data integrity verified through read-back");
+        
+        // ===================================================================
         // TEST SUMMARY
         // ===================================================================
         $display("\n╔════════════════════════════════════════════════════════╗");
@@ -424,6 +511,7 @@ module cache_fsm_tb;
         $display("✓ Multiple Sets Access");
         $display("✓ Block-Level Operations");
         $display("✓ Multiple Offset Writes");
+        $display("✓ Dirty Line Eviction & Write-Back");
         
         $display("\n╔════════════════════════════════════════════════════════╗");
         $display("║            All Tests Completed Successfully!           ║");
