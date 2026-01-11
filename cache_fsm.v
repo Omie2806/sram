@@ -22,9 +22,6 @@ module cache_fsm #(
     output logic                                        data_ready_main_mem
 );
 
-logic [DATA_WIDTH - 1 : 0] data_in_main_mem_packed  [0 : WORDS_PER_BLOCK - 1];
-logic [DATA_WIDTH - 1 : 0] data_out_main_mem_packed [0 : WORDS_PER_BLOCK - 1];
-
 localparam ADD             = ADDRESS_WIDTH;
 localparam TAG_IN_ADD      = SET_WIDTH + OFFSET_WIDTH + BYTE_OFFSET;
 localparam SET_IN_ADD      = OFFSET_WIDTH + BYTE_OFFSET;
@@ -123,7 +120,7 @@ input[SET_WIDTH - 1 : 0] set_index;
     end
 endfunction
 
-always @(posedge clk , posedge reset) begin
+always @(posedge clk) begin
     if(reset) begin
         state_curr           <= idle;
         state_prev           <= idle;
@@ -137,10 +134,6 @@ always @(posedge clk , posedge reset) begin
         pending_write        <= 0;
         pending_write_data   <= 0;
         pending_write_offset <= 0;
-
-        for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
-            data_out_main_mem_packed[i]   <= 'b0;
-        end
 
         for (integer i = 0; i < SETS; i++) begin
             for (integer j = 0; j < WAY; j++) begin
@@ -223,7 +216,7 @@ always @(*) begin
         end
 
         read_miss: begin
-            if(&latched_dirty == 1'b1) begin
+            if(|latched_dirty == 1'b1) begin
                 state_next = get_victim;
             end else begin
                 state_next = read_from_main_mem;
@@ -231,7 +224,11 @@ always @(*) begin
         end
 
         get_victim: begin
-            state_next = write_back;
+            if(DIRTY[latched_set][latched_victim]) begin  // Is victim dirty?
+                state_next = write_back;
+            end else begin
+                state_next = read_from_main_mem;  // Clean victim, skip write-back
+            end  
         end
 
         write_back: begin
