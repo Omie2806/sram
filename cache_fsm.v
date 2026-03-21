@@ -40,7 +40,6 @@ reg                      VALID               [0 : SETS - 1][0 : WAY - 1];
 reg                      DIRTY               [0 : SETS - 1][0 : WAY - 1];
 reg [1 : 0]              LRU_COUNTER         [0 : SETS - 1][0 : WAY - 1];
 
-// Add after your existing reg declarations
 reg [SET_WIDTH-1:0]    latched_set;
 reg [TAG_WIDTH-1:0]    latched_tag;
 reg [OFFSET_WIDTH-1:0] latched_offset;
@@ -48,7 +47,6 @@ reg [1:0]              latched_victim;
 reg [TAG_WIDTH-1:0]    victim_tag;
 reg [DATA_WIDTH - 1 : 0] latched_data_in;
 
-// For write-allocate
 reg                    pending_write;
 reg [DATA_WIDTH-1:0]   pending_write_data;
 reg [OFFSET_WIDTH-1:0] pending_write_offset;
