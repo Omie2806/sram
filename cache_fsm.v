@@ -14,12 +14,11 @@ module cache_fsm #(
     input  logic                                        clk, 
     input  logic                                        write_en,
     input  logic                                        reset,
-    input  logic                                        write_en_main_mem,
     input  logic [DATA_WIDTH - 1 : 0]                   data_in,
     input  logic [ADDRESS_WIDTH - 1 : 0]                mem_add,
     output logic                                        data_ready,
-    output logic [DATA_WIDTH - 1 : 0]                   data_out,
-    output logic                                        data_ready_main_mem
+    output logic [DATA_WIDTH - 1 : 0]                   data_out
+    //output logic                                        data_ready_main_mem
 );
 
 localparam ADD             = ADDRESS_WIDTH;
@@ -40,6 +39,7 @@ reg                      VALID               [0 : SETS - 1][0 : WAY - 1];
 reg                      DIRTY               [0 : SETS - 1][0 : WAY - 1];
 reg [1 : 0]              LRU_COUNTER         [0 : SETS - 1][0 : WAY - 1];
 
+
 reg [SET_WIDTH-1:0]    latched_set;
 reg [TAG_WIDTH-1:0]    latched_tag;
 reg [OFFSET_WIDTH-1:0] latched_offset;
@@ -47,6 +47,7 @@ reg [1:0]              latched_victim;
 reg [TAG_WIDTH-1:0]    victim_tag;
 reg [DATA_WIDTH - 1 : 0] latched_data_in;
 
+// For write-allocate
 reg                    pending_write;
 reg [DATA_WIDTH-1:0]   pending_write_data;
 reg [OFFSET_WIDTH-1:0] pending_write_offset;
@@ -59,16 +60,16 @@ logic[WAY - 1 : 0] latched_valid;
 logic[WAY - 1 : 0] latched_dirty;
 
 typedef enum logic [2 : 0] {
-    idle,
-    read,
-    write,
-    read_miss,
-    get_victim,
-    write_back,
-    read_from_main_mem
+    IDLE,
+    READ,
+    WRITE,
+    READ_MISS,
+    GET_VICTIM,
+    WRITE_BACK,
+    READ_FROM_MAIN_MEM
 } state_type;
 
-state_type state_prev, state_curr, state_next;
+state_type state_curr, state_next;
 
 always_comb begin
     for (integer i = 0; i < WAY; i++) begin
@@ -118,12 +119,18 @@ input[SET_WIDTH - 1 : 0] set_index;
     end
 endfunction
 
+logic        write_hit;
+logic[1 : 0] write_hit_way;
+
+logic [ADDRESS_WIDTH-1:0] victim_addr;
+logic [ADDRESS_WIDTH-OFFSET_WIDTH-BYTE_OFFSET-1:0] victim_block_addr;
+logic [ADDRESS_WIDTH-OFFSET_WIDTH-BYTE_OFFSET-1:0] block_addr;
+
 always @(posedge clk) begin
     if(reset) begin
-        state_curr           <= idle;
-        state_prev           <= idle;
+        state_curr           <= IDLE;
         data_out             <= 'b0;
-        data_ready_main_mem  <= 1'b0;
+        //data_ready_main_mem  <= 1'b0;
         latched_set          <= 0;
         latched_tag          <= 0;
         latched_offset       <= 0;
@@ -151,46 +158,43 @@ always @(posedge clk) begin
         end
     end 
     else begin
-        state_curr <= state_next;
-        state_prev <= state_curr;
-    end 
-end
-
-//fsm signals
-logic read_true;
-logic write_hit_true;
-logic write_back_true;
-logic read_from_main_mem_true;
-
-logic        write_hit;
-logic[1 : 0] write_hit_way;
-
-always @(*) begin
-    state_next              = state_curr;
-    read_true               = 0;
-    write_hit_true          = 0;
-    write_back_true         = 0;
-    read_from_main_mem_true = 0;
 
     case (state_curr)
-        idle: begin
+        IDLE: begin
+            latched_set     <= set;
+            latched_tag     <= tag;
+            latched_offset  <= offset;
+            latched_data_in <= data_in;
+            pending_write   <= 0;
+
             if(~write_en) begin
-                state_next = read;
+                state_curr <= READ;
             end else if(write_en) begin
-                state_next = write;
+                state_curr <= WRITE;
             end
         end
 
-        read: begin
-                if (|latched_hit) begin
-                    read_true = 1;
-                    state_next = idle;        
-                end else begin
-                    state_next = read_miss;
+        READ: begin
+            if (|latched_hit) begin
+                state_curr <= IDLE;
+                for (integer i = 0; i < WAY; i++) begin
+                    if(latched_hit[i]) begin
+                        data_out                  <= CACHE_MEMORY[latched_set][i][latched_offset]; 
+                        LRU_COUNTER[latched_set][i]       <= 0;
+                        for (integer j = 0; j < WAY; j++) begin
+                            if(j != i && VALID[latched_set][j]) begin
+                                LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
+                            end
+                        end
+                    end  
                 end
+            end                             
+            else begin
+                state_curr <= READ_MISS;
+            end
         end
 
-        write: begin
+        WRITE: begin
             write_hit = 0;
             for (integer i = 0; i < WAY; i++) begin
                 if(latched_hit[i] == 1) begin
@@ -199,155 +203,79 @@ always @(*) begin
             end
 
             if (write_hit) begin
-                write_hit_true = 1;
-                state_next = idle;                
+                write_hit_way = -1;
+                for (integer i = 0; i < WAY; i++) begin
+                    if(latched_hit[i] == 1) begin
+                        write_hit_way = i;
+                    end
+                end
+                CACHE_MEMORY[latched_set][write_hit_way][latched_offset] <= latched_data_in; 
+                DIRTY[latched_set][write_hit_way]                        <= 1'b1;
+                TAG_IN_CACHE_MEMORY[latched_set][write_hit_way]          <= latched_tag;
+                VALID[latched_set][write_hit_way]                        <= 1'b1;
+                LRU_COUNTER[latched_set][write_hit_way]                  <= 0;
+                for (integer j = 0; j < WAY; j++) begin
+                    if (j != write_hit_way && VALID[latched_set][j]) begin
+                        LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
+                    end
+                end
+                state_curr <= IDLE;   
             end
+
             else if(|latched_hit == 0) begin //write miss
-            write_hit_true = 0;
-                if (&latched_valid == 1) begin //all ways valid hence get victim
-                    state_next = get_victim;
-                end
-                else begin
-                    state_next = read_miss;
-                end
-            end 
-        end
-
-        read_miss: begin
-            if(|latched_dirty == 1'b1) begin
-                state_next = get_victim;
-            end else begin
-                state_next = read_from_main_mem;
-            end
-        end
-
-        get_victim: begin
-            if(DIRTY[latched_set][latched_victim]) begin  // Is victim dirty?
-                state_next = write_back;
-            end else begin
-                state_next = read_from_main_mem;  // Clean victim, skip write-back
-            end  
-        end
-
-        write_back: begin
-            write_back_true = 1;
-            state_next = read_from_main_mem;
-        end
-
-        read_from_main_mem: begin
-            read_from_main_mem_true = 1;
-            if(pending_write) begin
-                state_next = idle;
-            end else begin
-                state_next = read;
-            end
-        end
-    endcase
-end
-
-always @(posedge clk) begin
-    logic [ADDRESS_WIDTH-1:0] victim_addr;
-    logic [ADDRESS_WIDTH-OFFSET_WIDTH-BYTE_OFFSET-1:0] victim_block_addr;
-    logic [ADDRESS_WIDTH-OFFSET_WIDTH-BYTE_OFFSET-1:0] block_addr;
-
-    case (state_curr)
-
-    idle: begin
-        if(state_next == read || state_next == write) begin
-            latched_set    <= set;
-            latched_tag    <= tag;
-            latched_offset <= offset;
-            latched_data_in <= data_in;
-        end
-    end
-
-    read: begin
-        
-        if(read_true) begin
-            for (integer i = 0; i < WAY; i++) begin
-                if(latched_hit[i]) begin
-                    data_out                  <= CACHE_MEMORY[latched_set][i][latched_offset]; 
-                    LRU_COUNTER[latched_set][i]       <= 0;
-                    for (integer j = 0; j < WAY; j++) begin
-                        if(j != i && VALID[latched_set][j]) begin
-                            LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
-                        end
-                    end  
-                end
-            end 
-        end      
-    end
-
-    write: begin
-
-        if(write_hit_true) begin
-            write_hit_way = -1;
-            for (integer i = 0; i < WAY; i++) begin
-                if(latched_hit[i] == 1) begin
-                    write_hit_way = i;
-                end
-            end
-            CACHE_MEMORY[latched_set][write_hit_way][latched_offset] <= latched_data_in; 
-            DIRTY[latched_set][write_hit_way]                        <= 1'b1;
-            TAG_IN_CACHE_MEMORY[latched_set][write_hit_way]          <= latched_tag;
-            VALID[latched_set][write_hit_way]                        <= 1'b1;
-            LRU_COUNTER[latched_set][write_hit_way]                  <= 0;
-            for (integer j = 0; j < WAY; j++) begin
-                if (j != write_hit_way && VALID[latched_set][j]) begin
-                    LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
-                end
-            end
-        end
-
-        else if(!write_hit_true) begin
                 pending_write        <= 1;
                 pending_write_data   <= latched_data_in;
                 pending_write_offset <= latched_offset;
+                if (&latched_valid == 1) begin //all ways valid hence get victim
+                    state_curr <= GET_VICTIM;
+                end
+                else begin
+                    state_curr <= READ_MISS;
+                end
+            end 
         end
-    end
 
-    read_miss: begin
-        if(&latched_valid == 0) begin
-            latched_victim <= free_way(latched_set);
-            victim_tag <= TAG_IN_CACHE_MEMORY[latched_set][free_way(latched_set)]; 
-        end 
-        else begin
-            latched_victim     <= get_replacement(latched_set);
-            victim_tag <= TAG_IN_CACHE_MEMORY[latched_set][get_replacement(latched_set)];     
-        end   
-    end
+        READ_MISS: begin
+            if((&latched_valid == 1)) begin //if all ways valid, get victim
+                state_curr      <= GET_VICTIM;
+                latched_victim  <= get_replacement(latched_set);
+                victim_tag      <= TAG_IN_CACHE_MEMORY[latched_set][get_replacement(latched_set)];     
+            end else begin //atleast one way is free, no need to write-back
+                state_curr     <= READ_FROM_MAIN_MEM;
+                latched_victim <= free_way(latched_set); 
+                victim_tag     <= TAG_IN_CACHE_MEMORY[latched_set][free_way(latched_set)];
+            end
+        end
 
-    get_victim: begin
-        latched_victim     <= get_replacement(latched_set);
-        victim_tag <= TAG_IN_CACHE_MEMORY[latched_set][get_replacement(latched_set)];
-    end
+        GET_VICTIM: begin
+            if(DIRTY[latched_set][latched_victim]) begin  
+                state_curr <= WRITE_BACK;
+            end else begin
+                state_curr <= READ_FROM_MAIN_MEM;  // Clean victim skip write-back
+            end  
+        end
 
-    write_back: begin
-        if(write_back_true) begin
-            victim_addr = {victim_tag, latched_set};
+        WRITE_BACK: begin
+            state_curr <= READ_FROM_MAIN_MEM;
                 
             for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
                 MAIN_MEMORY[victim_addr[11 : 0]][i] <= CACHE_MEMORY[latched_set][latched_victim][i];
             end
-            data_ready_main_mem <= 1'b1;
+            //data_ready_main_mem <= 1'b1;
             VALID[latched_set][latched_victim]  <= 1'b0;
             DIRTY[latched_set][latched_victim]  <= 1'b0;
         end
-    end
 
-    read_from_main_mem: begin
-        if(read_from_main_mem_true) begin
-            block_addr = {latched_tag, latched_set};
+        READ_FROM_MAIN_MEM: begin
 
             for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
                 CACHE_MEMORY[latched_set][latched_victim][i] <= MAIN_MEMORY[block_addr[11 : 0]][i];
             end
-            data_ready_main_mem                      <= 1'b0;
+            //data_ready_main_mem                      <= 1'b0;
 
             if(pending_write) begin
                 CACHE_MEMORY[latched_set][latched_victim][pending_write_offset] <= pending_write_data;
                 DIRTY[latched_set][latched_victim]                              <= 1'b1;
-                pending_write                                                   <= 1'b0;
             end 
             else begin
                 DIRTY[latched_set][latched_victim]                              <= 1'b0;
@@ -361,9 +289,17 @@ always @(posedge clk) begin
                     LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
                 end
             end
+            if(pending_write) begin
+                state_curr <= IDLE;
+            end else begin
+                state_curr <= READ;
+            end
         end
-    end
     endcase
+    end 
 end
+
+assign victim_addr = {victim_tag, latched_set};
+assign block_addr = {latched_tag, latched_set};
 
 endmodule
