@@ -294,4 +294,3 @@ end
 
 - Inspired by Digital System design by Harris and Harris
 - Digital System design NPTEL course 
-- Claude AI for testbenches and help with debugging
