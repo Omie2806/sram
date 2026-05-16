@@ -226,8 +226,8 @@ always @(posedge clk) begin
                 pending_write        <= 1;
                 pending_write_data   <= latched_data_in;
                 pending_write_offset <= latched_offset;
-                if (&latched_valid == 1) begin //all ways valid hence get victim
-                    state_curr <= GET_VICTIM;
+                if (&latched_valid == 1) begin //all ways valid 
+                    state_curr <= READ_MISS;
                 end
                 else begin
                     state_curr <= READ_MISS;
