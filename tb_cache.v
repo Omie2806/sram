@@ -93,7 +93,7 @@ module cache_fsm_tb;
         mem_add = 32'h09F0_0030;
         data_in = 32'HFFFF_FFFF;
         @(posedge clk);
-                write_en = 1;
+        write_en = 1;
         @(posedge clk);
         write_en = 0;
         repeat(5)@(posedge clk);
@@ -101,9 +101,32 @@ module cache_fsm_tb;
         mem_add = 32'h0BF0_0010;
         repeat(6)@(posedge clk);
        
-
         mem_add = 32'h0000_000F;
         repeat(9)@(posedge clk);
+
+        mem_add = 32'h0570_0010;
+        repeat(6)@(posedge clk);
+
+        mem_add = 32'h09F0_0030;    
+        repeat(6)@(posedge clk);    
+
+        mem_add = 32'h0BF0_0010;
+        repeat(6)@(posedge clk);
+
+        mem_add = 32'h0DF0_0030;
+        data_in = 32'HFFFF_FFFF;
+        @(posedge clk);
+        write_en = 1;
+        @(posedge clk);
+        write_en = 0;
+        repeat(5)@(posedge clk);   
+
+        mem_add = 32'h00F0_0010;
+
+        repeat(10)@(posedge clk);   
+        mem_add = 32'h0000_000F;       
+        repeat(8)@(posedge clk); 
+
         $finish;
     end
 endmodule
