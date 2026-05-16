@@ -95,7 +95,7 @@ input [SET_WIDTH - 1 : 0] set_index;
     begin
     integer max;
     integer victim;
-        max    = -1;
+        max    = 0;
         victim = 0;
 
         for (integer i = 0; i < WAY; i++) begin
@@ -248,7 +248,7 @@ always @(posedge clk) begin
         end
 
         GET_VICTIM: begin
-            if(DIRTY[latched_set][latched_victim]) begin  
+            if(VALID[latched_set][latched_victim]) begin  
                 state_curr <= WRITE_BACK;
             end else begin
                 state_curr <= READ_FROM_MAIN_MEM;  // Clean victim skip write-back
@@ -259,7 +259,7 @@ always @(posedge clk) begin
             state_curr <= READ_FROM_MAIN_MEM;
                 
             for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
-                MAIN_MEMORY[victim_addr[11 : 0]][i] <= CACHE_MEMORY[latched_set][latched_victim][i];
+                MAIN_MEMORY[victim_addr][i] <= CACHE_MEMORY[latched_set][latched_victim][i];
             end
             //data_ready_main_mem <= 1'b1;
             VALID[latched_set][latched_victim]  <= 1'b0;
