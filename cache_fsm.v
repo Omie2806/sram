@@ -1,5 +1,5 @@
 module cache_fsm #(
-    parameter MEM_SIZE        = 4096,
+    parameter MEM_SIZE        = 1048576,
     parameter CACHE_SIZE      = 1024,
     parameter SETS            = 256,
     parameter ADDRESS_WIDTH   = 32,
@@ -9,14 +9,18 @@ module cache_fsm #(
     parameter OFFSET_WIDTH    = 4,
     parameter WAY             = 4,
     parameter BYTE_OFFSET     = $clog2(DATA_WIDTH/8),
-    parameter WORDS_PER_BLOCK = 1 << OFFSET_WIDTH
+    parameter WORDS_PER_BLOCK = 1 << OFFSET_WIDTH,
+    parameter BYTES_PER_WORD  = 4
 ) ( 
     input  logic                                        clk, 
     input  logic                                        write_en,
+    input  logic                                        read_en,
     input  logic                                        reset,
     input  logic [DATA_WIDTH - 1 : 0]                   data_in,
     input  logic [ADDRESS_WIDTH - 1 : 0]                mem_add,
-    output logic                                        data_ready,
+    input  logic [2 : 0]                                load_type,
+    input  logic [3 : 0]                                write_bytes_enable,
+    output logic                                        stall,
     output logic [DATA_WIDTH - 1 : 0]                   data_out
     //output logic                                        data_ready_main_mem
 );
@@ -26,14 +30,15 @@ localparam TAG_IN_ADD      = SET_WIDTH + OFFSET_WIDTH + BYTE_OFFSET;
 localparam SET_IN_ADD      = OFFSET_WIDTH + BYTE_OFFSET;
 localparam BYTE_OFFSET_ADD = BYTE_OFFSET;
 
-wire [TAG_WIDTH - 1 : 0]    tag    = mem_add[ADD - 1 : TAG_IN_ADD];        //tag separation
-wire [SET_WIDTH - 1 : 0]    set    = mem_add[TAG_IN_ADD - 1 : SET_IN_ADD]; //set separation
-wire [OFFSET_WIDTH - 1 : 0] offset = mem_add[SET_IN_ADD - 1 : BYTE_OFFSET_ADD];//offset separation  
+wire [TAG_WIDTH - 1 : 0]    tag        = mem_add[ADD - 1 : TAG_IN_ADD];        //tag separation
+wire [SET_WIDTH - 1 : 0]    set        = mem_add[TAG_IN_ADD - 1 : SET_IN_ADD]; //set separation
+wire [OFFSET_WIDTH - 1 : 0] offset     = mem_add[SET_IN_ADD - 1 : BYTE_OFFSET_ADD];//offset separation  
+wire [BYTE_OFFSET - 1 : 0] byte_offset = mem_add[BYTE_OFFSET_ADD - 1 : 0]; //byte offset separation
 
 // Internal memory
-reg [DATA_WIDTH-1:0] MAIN_MEMORY [0:MEM_SIZE-1][0:WORDS_PER_BLOCK-1];
+reg [7 : 0] MAIN_MEMORY [0:MEM_SIZE-1][0:WORDS_PER_BLOCK-1][0 : BYTES_PER_WORD - 1];
 
-reg [DATA_WIDTH - 1 : 0] CACHE_MEMORY        [0 : SETS - 1][0 : WAY - 1][0 : WORDS_PER_BLOCK - 1];
+reg [7 : 0] CACHE_MEMORY        [0 : SETS - 1][0 : WAY - 1][0 : WORDS_PER_BLOCK - 1][0 : BYTES_PER_WORD - 1];
 reg [TAG_WIDTH - 1 : 0]  TAG_IN_CACHE_MEMORY [0 : SETS - 1][0 : WAY - 1];
 reg                      VALID               [0 : SETS - 1][0 : WAY - 1];
 reg                      DIRTY               [0 : SETS - 1][0 : WAY - 1];
@@ -43,6 +48,7 @@ reg [1 : 0]              LRU_COUNTER         [0 : SETS - 1][0 : WAY - 1];
 reg [SET_WIDTH-1:0]    latched_set;
 reg [TAG_WIDTH-1:0]    latched_tag;
 reg [OFFSET_WIDTH-1:0] latched_offset;
+reg [BYTE_OFFSET-1:0]  latched_byte_offset;
 reg [1:0]              latched_victim;
 reg [TAG_WIDTH-1:0]    victim_tag;
 reg [DATA_WIDTH - 1 : 0] latched_data_in;
@@ -51,6 +57,7 @@ reg [DATA_WIDTH - 1 : 0] latched_data_in;
 reg                    pending_write;
 reg [DATA_WIDTH-1:0]   pending_write_data;
 reg [OFFSET_WIDTH-1:0] pending_write_offset;
+reg [BYTE_OFFSET-1:0]  pending_write_byte_offset;
 
 logic[WAY - 1 : 0] HIT;
 logic[WAY - 1 : 0] valid;
@@ -88,7 +95,6 @@ always_comb begin
     end
 end
 
-assign data_ready = |HIT;
 
 function automatic integer get_replacement;
 input [SET_WIDTH - 1 : 0] set_index;
@@ -134,6 +140,7 @@ always @(posedge clk) begin
         latched_set          <= 0;
         latched_tag          <= 0;
         latched_offset       <= 0;
+        latched_byte_offset  <= 0;
         latched_victim       <= 0;
         victim_tag           <= 0;
         pending_write        <= 0;
@@ -152,7 +159,9 @@ always @(posedge clk) begin
         for (integer i = 0; i < SETS; i++) begin
             for (integer j = 0; j < WAY; j++) begin
                 for (integer k = 0; k < WORDS_PER_BLOCK; k++) begin
-                    CACHE_MEMORY[i][j][k] <= 'b0;
+                    for(integer l = 0; l < BYTES_PER_WORD; l++) begin
+                       CACHE_MEMORY[i][j][k][l] <= 'b0; 
+                    end
                 end
             end
         end
@@ -164,22 +173,34 @@ always @(posedge clk) begin
             latched_set     <= set;
             latched_tag     <= tag;
             latched_offset  <= offset;
+            latched_byte_offset <= byte_offset;
             latched_data_in <= data_in;
             pending_write   <= 0;
+            stall           <= 0;
 
-            if(~write_en) begin
+            if(read_en) begin
                 state_curr <= READ;
+                stall      <= 1;
             end else if(write_en) begin
                 state_curr <= WRITE;
+                stall      <= 1;
             end
         end
 
         READ: begin
             if (|latched_hit) begin
+                stall      <= 0;
                 state_curr <= IDLE;
                 for (integer i = 0; i < WAY; i++) begin
                     if(latched_hit[i]) begin
-                        data_out                  <= CACHE_MEMORY[latched_set][i][latched_offset]; 
+                        data_out                  <= read_en ? (
+                            (load_type == 3'b000) ? {{24{CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset][7]}}, CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset]} :
+                            (load_type == 3'b100) ? {24'h0, CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset]} :
+                            (load_type == 3'b001) ? {{16{CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset + 1][7]}}, CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset + 1],  CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset]}:
+                            (load_type == 3'b101) ? {16'h0, CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset + 1],  CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset]} :
+                            (load_type == 3'b010) ? {CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset + 3],  CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset + 2],  CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset + 1],  CACHE_MEMORY[latched_set][i][latched_offset][latched_byte_offset]} :
+                            32'h0
+                        ) : 32'h0;
                         LRU_COUNTER[latched_set][i]       <= 0;
                         for (integer j = 0; j < WAY; j++) begin
                             if(j != i && VALID[latched_set][j]) begin
@@ -203,13 +224,26 @@ always @(posedge clk) begin
             end
 
             if (write_hit) begin
-                write_hit_way = -1;
+                write_hit_way = 0;
                 for (integer i = 0; i < WAY; i++) begin
                     if(latched_hit[i] == 1) begin
                         write_hit_way = i;
                     end
                 end
-                CACHE_MEMORY[latched_set][write_hit_way][latched_offset] <= latched_data_in; 
+                if (write_bytes_enable[0]) begin
+                    CACHE_MEMORY[latched_set][write_hit_way][latched_offset][latched_byte_offset]     <= latched_data_in[7 : 0];
+                end
+                // For halfword writes: write 2 consecutive bytes
+                if (write_bytes_enable[1]) begin
+                    CACHE_MEMORY[latched_set][write_hit_way][latched_offset][latched_byte_offset + 1] <= latched_data_in[15 : 8];
+                end
+                // For word writes: write 4 consecutive bytes
+                if (write_bytes_enable[2]) begin
+                    CACHE_MEMORY[latched_set][write_hit_way][latched_offset][latched_byte_offset + 2] <= latched_data_in[23 : 16];
+                end
+                if (write_bytes_enable[3]) begin
+                    CACHE_MEMORY[latched_set][write_hit_way][latched_offset][latched_byte_offset + 3] <= latched_data_in[31 : 24];
+                end 
                 DIRTY[latched_set][write_hit_way]                        <= 1'b1;
                 TAG_IN_CACHE_MEMORY[latched_set][write_hit_way]          <= latched_tag;
                 VALID[latched_set][write_hit_way]                        <= 1'b1;
@@ -223,9 +257,10 @@ always @(posedge clk) begin
             end
 
             else if(|latched_hit == 0) begin //write miss
-                pending_write        <= 1;
-                pending_write_data   <= latched_data_in;
-                pending_write_offset <= latched_offset;
+                pending_write             <= 1;
+                pending_write_data        <= latched_data_in;
+                pending_write_offset      <= latched_offset;
+                pending_write_byte_offset <= latched_byte_offset;
                 if (&latched_valid == 1) begin //all ways valid 
                     state_curr <= READ_MISS;
                 end
@@ -259,7 +294,9 @@ always @(posedge clk) begin
             state_curr <= READ_FROM_MAIN_MEM;
                 
             for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
-                MAIN_MEMORY[victim_addr][i] <= CACHE_MEMORY[latched_set][latched_victim][i];
+                for(integer j = 0; j < BYTES_PER_WORD; j++) begin
+                    MAIN_MEMORY[victim_addr[19 : 0]][i][j] <= CACHE_MEMORY[latched_set][latched_victim][i][j];
+                end
             end
             //data_ready_main_mem <= 1'b1;
             VALID[latched_set][latched_victim]  <= 1'b0;
@@ -269,12 +306,27 @@ always @(posedge clk) begin
         READ_FROM_MAIN_MEM: begin
 
             for (integer i = 0; i < WORDS_PER_BLOCK; i++) begin
-                CACHE_MEMORY[latched_set][latched_victim][i] <= MAIN_MEMORY[block_addr[11 : 0]][i];
+                for(integer j = 0; j < BYTES_PER_WORD; j++) begin
+                    CACHE_MEMORY[latched_set][latched_victim][i][j] <= MAIN_MEMORY[block_addr[19 : 0]][i][j];
+                end
             end
             //data_ready_main_mem                      <= 1'b0;
 
             if(pending_write) begin
-                CACHE_MEMORY[latched_set][latched_victim][pending_write_offset] <= pending_write_data;
+                if (write_bytes_enable[0]) begin
+                    CACHE_MEMORY[latched_set][latched_victim][pending_write_offset][pending_write_byte_offset] <= pending_write_data[7 : 0];
+                end
+                // For halfword writes: write 2 consecutive bytes
+                if (write_bytes_enable[1]) begin
+                    CACHE_MEMORY[latched_set][latched_victim][pending_write_offset][pending_write_byte_offset + 1] <= pending_write_data[15 : 8];
+                end
+                // For word writes: write 4 consecutive bytes
+                if (write_bytes_enable[2]) begin
+                    CACHE_MEMORY[latched_set][latched_victim][pending_write_offset][pending_write_byte_offset + 2] <= pending_write_data[23 : 16];
+                end
+                if (write_bytes_enable[3]) begin
+                    CACHE_MEMORY[latched_set][latched_victim][pending_write_offset][pending_write_byte_offset + 3] <= pending_write_data[31 : 24];
+                end
                 DIRTY[latched_set][latched_victim]                              <= 1'b1;
             end 
             else begin
@@ -291,6 +343,7 @@ always @(posedge clk) begin
             end
             if(pending_write) begin
                 state_curr <= IDLE;
+                stall      <= 0;
             end else begin
                 state_curr <= READ;
             end
