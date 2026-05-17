@@ -1,7 +1,7 @@
 module cache_fsm_tb;
 
     // Parameters - matching the cache design
-    parameter MEM_SIZE        = 4096;
+    parameter MEM_SIZE        = 1048576;
     parameter CACHE_SIZE      = 1024;
     parameter SETS            = 256;
     parameter ADDRESS_WIDTH   = 32;
@@ -12,23 +12,22 @@ module cache_fsm_tb;
     parameter WAY             = 4;
     parameter BYTE_OFFSET     = 2;
     parameter WORDS_PER_BLOCK = 16;
+    parameter BYTES_PER_WORD  = 4;
     
     parameter CLK_PERIOD = 10;
 
     // Testbench signals
     logic                              clk;
     logic                              write_en;
+    logic                              read_en;
     logic                              reset;
-    logic                              write_en_main_mem;
     logic [DATA_WIDTH - 1 : 0]         data_in;
     logic [ADDRESS_WIDTH - 1 : 0]      mem_add;
-    logic                              data_ready;
+    logic                              stall;
     logic [DATA_WIDTH - 1 : 0]         data_out;
-    logic                              data_ready_main_mem;
+    logic [3 : 0]                      write_bytes_enable;
+    logic [2 : 0]                      load_type;
 
-    // Helper variables for tasks (declared here for Icarus Verilog compatibility)
-    logic [ADDRESS_WIDTH-1:0] task_addr;
-    logic [11:0] victim_block_addr;
 
     // Instantiate the cache FSM
     cache_fsm #(
@@ -42,15 +41,19 @@ module cache_fsm_tb;
         .OFFSET_WIDTH(OFFSET_WIDTH),
         .WAY(WAY),
         .BYTE_OFFSET(BYTE_OFFSET),
-        .WORDS_PER_BLOCK(WORDS_PER_BLOCK)
+        .WORDS_PER_BLOCK(WORDS_PER_BLOCK),
+        .BYTES_PER_WORD(BYTES_PER_WORD)
     ) dut (
         .clk(clk),
         .write_en(write_en),
+        .read_en(read_en),
         .reset(reset),
         .data_in(data_in),
         .mem_add(mem_add),
-        .data_ready(data_ready),
-        .data_out(data_out)
+        .stall(stall),
+        .data_out(data_out),
+        .write_bytes_enable(write_bytes_enable),
+        .load_type(load_type)
     );
 
     // Clock generation
@@ -66,66 +69,114 @@ module cache_fsm_tb;
 
         for(integer  i = 0; i < MEM_SIZE; i++) begin
             for (integer j = 0; j < WORDS_PER_BLOCK; j++) begin
-               dut.MAIN_MEMORY[i][j] = j+1; 
+                for(integer k = 0; k < BYTES_PER_WORD; k++) begin
+                    dut.MAIN_MEMORY[i][j][k] = 0;
+                end 
             end
         end
-        mem_add = 32'h0000_000F;
+
+//test 1- write some data and recheck if written properly 
+        write_bytes_enable = 4'b1111;
+        mem_add = 32'h0000_00F0;
+        data_in = 32'hFBFC_FDFE;
+        @(posedge clk);
+        write_en = 1;
+        @(posedge clk);
+        write_en = 0;
+        repeat(8)@(posedge clk);
+//see if the block was correctly loaded from the main memory and read the word
+        load_type = 010;
+        read_en = 1;
+        repeat(3)@(posedge clk);
+        read_en = 0;
+
+//test 2- check unsigned byte read after writing at the same tag(for me to check byte offset correctness)
+        write_bytes_enable = 4'b0001;
+        mem_add = 32'b0000_0000_0000_0000_0000_0000_1111_0011;
         data_in = 32'hFFFF_FFFF;
         @(posedge clk);
         write_en = 1;
         @(posedge clk);
         write_en = 0;
         repeat(8)@(posedge clk);
-        mem_add = 32'h0000_0000;
 
-        mem_add = 32'h00F0_0010;
-        repeat(6)@(posedge clk);
+        load_type = 100;
+        read_en = 1;
+        repeat(2)@(posedge clk);
+        read_en = 0;
 
-        mem_add = 32'h03F0_0001;
-        repeat(6)@(posedge clk);
+//test 3- check sign extend byte access
+        load_type = 000;
+        read_en   = 1;
+        repeat(2)@(posedge clk);
+        read_en = 0;
 
-        mem_add = 32'h0570_0010;
-        repeat(6)@(posedge clk);
 
-        mem_add = 32'h07F0_0020;
+
+//test 4- fill all ways and test writebacks and read from main memory
+
+        write_bytes_enable = 4'b1111;
+        mem_add = 32'h0F00_00F0;
+        data_in = 32'hABAB_FDFE;
+        @(posedge clk);
+        write_en = 1;
+        @(posedge clk);
+        write_en = 0;
         repeat(8)@(posedge clk);
+//see if the block was correctly loaded from the main memory and read the word
+        load_type = 010;
+        read_en = 1;
+        repeat(3)@(posedge clk);
+        read_en = 0;
 
-        mem_add = 32'h09F0_0030;
-        data_in = 32'HFFFF_FFFF;
+        write_bytes_enable = 4'b1111;
+        mem_add = 32'h0D00_00F0;
+        data_in = 32'hFBFC_ABAB;
         @(posedge clk);
         write_en = 1;
         @(posedge clk);
         write_en = 0;
-        repeat(5)@(posedge clk);
+        repeat(8)@(posedge clk);
+//see if the block was correctly loaded from the main memory and read the word
+        load_type = 010;
+        read_en = 1;
+        repeat(3)@(posedge clk);
+        read_en = 0;
 
-        mem_add = 32'h0BF0_0010;
-        repeat(6)@(posedge clk);
-       
-        mem_add = 32'h0000_000F;
-        repeat(9)@(posedge clk);
-
-        mem_add = 32'h0570_0010;
-        repeat(6)@(posedge clk);
-
-        mem_add = 32'h09F0_0030;    
-        repeat(6)@(posedge clk);    
-
-        mem_add = 32'h0BF0_0010;
-        repeat(6)@(posedge clk);
-
-        mem_add = 32'h0DF0_0030;
-        data_in = 32'HFFFF_FFFF;
+        write_bytes_enable = 4'b1111;
+        mem_add = 32'h0B00_00F0;
+        data_in = 32'hFBAB_ABFE;
         @(posedge clk);
         write_en = 1;
         @(posedge clk);
         write_en = 0;
-        repeat(5)@(posedge clk);   
+        repeat(8)@(posedge clk);
+//see if the block was correctly loaded from the main memory and read the word
+        load_type = 010;
+        read_en = 1;
+        repeat(3)@(posedge clk);
+        read_en = 0;  
 
-        mem_add = 32'h00F0_0010;
+//test 5- writeback the lru to the main memory and reread it to check reads from the main memory
+//write something new to cause eviction 
+        write_bytes_enable = 4'b1111;
+        mem_add = 32'h0900_00F0;
+        data_in = 32'hDEAD_BEAD;
+        @(posedge clk);
+        write_en = 1;
+        @(posedge clk);
+        write_en = 0;
+        repeat(8)@(posedge clk);
+//see if the block was correctly loaded from the main memory and read the word
+        load_type = 010;
+        read_en = 1;
+        repeat(3)@(posedge clk);
+        read_en = 0;   
 
-        repeat(10)@(posedge clk);   
-        mem_add = 32'h0000_000F;       
-        repeat(8)@(posedge clk); 
+        mem_add = 32'h0D00_00F0;
+        load_type = 010;
+        read_en = 1;
+        repeat(10)@(posedge clk);  //expect FBFC_ABAB          
 
         $finish;
     end
