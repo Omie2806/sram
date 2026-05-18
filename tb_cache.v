@@ -1,7 +1,7 @@
 module cache_fsm_tb;
 
     // Parameters - matching the cache design
-    parameter MEM_SIZE        = 1048576;
+    parameter MEM_SIZE        = 4096;
     parameter CACHE_SIZE      = 1024;
     parameter SETS            = 256;
     parameter ADDRESS_WIDTH   = 32;
