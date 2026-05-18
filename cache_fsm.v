@@ -96,10 +96,10 @@ always_comb begin
 end
 
 
-function automatic integer get_replacement;
+function automatic [1 : 0] get_replacement;
 input [SET_WIDTH - 1 : 0] set_index;
     begin
-    integer max;
+    logic[1 : 0] max;
     integer victim;
         max    = 0;
         victim = 0;
@@ -110,16 +110,16 @@ input [SET_WIDTH - 1 : 0] set_index;
                 victim = i;
             end
         end
-        return victim;
+        return victim[1 : 0];
     end
 endfunction
 
-function automatic integer free_way;
+function automatic [1  : 0] free_way;
 input[SET_WIDTH - 1 : 0] set_index;
     begin
         for (integer i = 0; i < WAY; i++) begin
             if(VALID[set_index][i] == 1'b0) begin
-                return i;
+                return i[1 : 0];
             end
         end
     end
@@ -149,7 +149,7 @@ always @(posedge clk) begin
 
         for (integer i = 0; i < SETS; i++) begin
             for (integer j = 0; j < WAY; j++) begin
-                LRU_COUNTER[i][j]         <= j;
+                LRU_COUNTER[i][j]         <= j[1 : 0];
                 TAG_IN_CACHE_MEMORY[i][j] <= 'b0;
                 VALID[i][j]               <= 'b0;
                 DIRTY[i][j]               <= 'b0;              
@@ -227,7 +227,7 @@ always @(posedge clk) begin
                 write_hit_way = 0;
                 for (integer i = 0; i < WAY; i++) begin
                     if(latched_hit[i] == 1) begin
-                        write_hit_way = i;
+                        write_hit_way = i[1 : 0];
                     end
                 end
                 if (write_bytes_enable[0]) begin
@@ -249,7 +249,7 @@ always @(posedge clk) begin
                 VALID[latched_set][write_hit_way]                        <= 1'b1;
                 LRU_COUNTER[latched_set][write_hit_way]                  <= 0;
                 for (integer j = 0; j < WAY; j++) begin
-                    if (j != write_hit_way && VALID[latched_set][j]) begin
+                    if (j[1 : 0] != write_hit_way && VALID[latched_set][j]) begin
                         LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
                     end
                 end
@@ -337,7 +337,7 @@ always @(posedge clk) begin
             VALID[latched_set][latched_victim]               <= 1'b1;
             LRU_COUNTER[latched_set][latched_victim] <= 0;
             for (integer j = 0; j < WAY; j++) begin
-                if(j != latched_victim && VALID[latched_set][j]) begin
+                if(j[1 : 0] != latched_victim && VALID[latched_set][j]) begin
                     LRU_COUNTER[latched_set][j] <= LRU_COUNTER[latched_set][j] + 1;
                 end
             end
@@ -348,11 +348,12 @@ always @(posedge clk) begin
                 state_curr <= READ;
             end
         end
+        default: state_curr <= IDLE;
     endcase
     end 
 end
 
-assign victim_addr = {victim_tag, latched_set};
+assign victim_addr = {{6{1'b0}},victim_tag, latched_set};
 assign block_addr = {latched_tag, latched_set};
 
 endmodule
