@@ -74,63 +74,8 @@ flowchart TB
 
 The cache controller uses a 7-state finite state machine to manage cache operations:
 
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    
-    IDLE --> READ : ~write_en
-    IDLE --> WRITE : write_en
-    
-    READ --> IDLE : cache hit
-    READ --> READ_MISS : cache miss
-    
-    WRITE --> IDLE : cache hit
-    WRITE --> GET_VICTIM : miss & all_ways_valid
-    WRITE --> READ_MISS : miss & free_way_available
-    
-    READ_MISS --> GET_VICTIM : victim_dirty
-    READ_MISS --> READ_FROM_MEM : victim_clean
-    
-    GET_VICTIM --> WRITE_BACK : victim_dirty
-    GET_VICTIM --> READ_FROM_MEM : victim_clean
-    
-    WRITE_BACK --> READ_FROM_MEM
-    
-    READ_FROM_MEM --> IDLE : pending_write
-    READ_FROM_MEM --> READ : normal_read
-    
-    note right of WRITE
-        Write Miss Cases:
-        1. Free way → READ_MISS
-        2. All valid → GET_VICTIM
-    end note
-```
+<img width="1338" height="780" alt="image" src="https://github.com/user-attachments/assets/12a898df-a27f-4bd6-8506-cdfdf433ee06" />
 
-### State Transitions & Performance
-
-**Read Hit:** `IDLE → READ → IDLE` (2 cycles)
-- Fast path: Tag compare and data output
-
-**Read Miss (clean victim):** `IDLE → READ → READ_MISS → READ_FROM_MEM → READ → IDLE` (~6 cycles)
-- Fetch new block from memory, no writeback needed
-
-**Read Miss (dirty victim):** `IDLE → READ → READ_MISS → GET_VICTIM → WRITE_BACK → READ_FROM_MEM → READ → IDLE` (~7 cycles)
-- Writeback dirty victim, then fetch new block
-
-**Write Hit:** `IDLE → WRITE → IDLE` (2 cycles)
-- Update cache line, mark dirty
-
-**Write Miss - Case 1 (free way available):** `IDLE → WRITE → READ_MISS → READ_FROM_MEM → IDLE` (~5 cycles)
-- At least one invalid way exists
-- Fetch block and write to free way
-- No victim selection or writeback needed
-
-**Write Miss - Case 2 (all ways valid, dirty victim):** `IDLE → WRITE → GET_VICTIM → WRITE_BACK → READ_FROM_MEM → IDLE` (~7 cycles)
-- All ways valid, use LRU replacement
-- Selected victim is dirty (dirty bit = 1)
-- Writeback victim, then fetch new block
-
-> **Note:** Cycle counts assume single-cycle memory access in simulation. In real hardware with DRAM, the miss penalty would be significantly higher.
 
 ### Control Signals
 
