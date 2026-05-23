@@ -1,17 +1,14 @@
 # 4-Way Set Associative Cache (Using LRU Policy)
-A fully functional 4 way set associative cache implemented in system verilog and tested using icarus.
+A fully functional 4 way set associative cache implemented in system verilog and tested using icarus and Vivado.
 
 ## Overview
 This project features a 4 way set associative cache which uses LRU Policy for write-backs.
-**Project status:** Completed and Verified.
-**Development Time:** September - November 2025  
 **Language:** SystemVerilog  
 
 ## Key features:
 - **4-Way Set-Associative Architecture**
   - 256 sets with 4 ways per set
   - 16-word (64-byte) cache blocks
-  - Total cache size: 32 KB
 
 - **LRU Replacement Policy**
   - LRU implementation using counters
@@ -35,12 +32,12 @@ This project features a 4 way set associative cache which uses LRU Policy for wr
 
 ### Cache Organization:
 
-Total Size:    32 KB
 Block Size:    64 bytes (16 words)
 Associativity: 4-way
 Number of Sets: 256
 Address Width: 32 bits [31 : 0]
-Data Width:    32 bits [31 : 0]
+Data Width:    32 bits [31 : 0](data in)
+Cache Data storage: 8 bits
 
 ### Address Breakdown
 No. of sets = 256, hence 8 bits required to uniquely express each set (2^8 = 256)
@@ -70,7 +67,7 @@ flowchart TB
 
 (Last 2 bits used as BYTE OFFSET)
 
-## 🔄 FSM State Machine
+## FSM State Machine
 
 The cache controller uses a 7-state finite state machine to manage cache operations:
 
@@ -224,17 +221,9 @@ end
 - **Multi-Level Cache**: Add L2 cache support
 - **Integration with a RISC-V CPU**
 
-##  Author
-
-**[Om Gupta]**
-- GitHub: [@Omie2806](https://github.com/Omie2806)
-- Email: omgupta2806@gmail.com
-
-*Electronics Engineering*  
-*VJTI Mumbai*
 
 
 ## Acknowledgments
 
-- Inspired by Digital System design by Harris and Harris
+- Digital System design by Harris and Harris
 - Digital System design NPTEL course 
